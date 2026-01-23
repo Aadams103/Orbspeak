@@ -1,0 +1,194 @@
+{
+  "id": "102019b2472ae6a7a03ab3ef552b579d531",
+  "version": "102019b2472ae6a783481179c7030c73c57",
+  "schema": {
+    "name": "user_settings",
+    "description": "Stores user preferences and configuration for the application.",
+    "fields": [
+      {
+        "name": "id",
+        "description": "Unique identifier for each data of this entity.",
+        "type": 1,
+        "compliance": {
+          "confidentiality": 2,
+          "reason": "Internal identifier"
+        }
+      },
+      {
+        "name": "data_creator",
+        "description": "id of the user who creates the record",
+        "type": 1,
+        "compliance": {
+          "confidentiality": 2,
+          "reason": "Internal auditing"
+        }
+      },
+      {
+        "name": "data_updater",
+        "description": "id of the user who updates the record",
+        "type": 1,
+        "compliance": {
+          "confidentiality": 2,
+          "reason": "Internal auditing"
+        }
+      },
+      {
+        "name": "create_time",
+        "description": "create time in timestamp unix",
+        "type": 1,
+        "compliance": {
+          "confidentiality": 2,
+          "reason": "Internal auditing"
+        },
+        "format": "timestamp"
+      },
+      {
+        "name": "update_time",
+        "description": "update time in timestamp unix",
+        "type": 1,
+        "compliance": {
+          "confidentiality": 2,
+          "reason": "Internal auditing"
+        },
+        "format": "timestamp"
+      },
+      {
+        "name": "user_id",
+        "description": "ID of the user to whom these settings belong.",
+        "type": 1,
+        "compliance": {
+          "confidentiality": 2,
+          "reason": "Internal linkage to user"
+        }
+      },
+      {
+        "name": "selected_microphone_id",
+        "description": "ID of the currently selected microphone device.",
+        "type": 1,
+        "compliance": {
+          "confidentiality": 2,
+          "reason": "Device configuration"
+        },
+        "nullable": true
+      },
+      {
+        "name": "selected_microphone_label",
+        "description": "Label or name of the currently selected microphone.",
+        "type": 1,
+        "compliance": {
+          "confidentiality": 2,
+          "reason": "Device configuration"
+        },
+        "nullable": true
+      },
+      {
+        "name": "dictation_mode",
+        "description": "Current dictation mode selected by the user.",
+        "type": 100,
+        "compliance": {
+          "confidentiality": 2,
+          "reason": "User preference"
+        },
+        "enumeration": [
+          {
+            "value": "Unspecified"
+          },
+          {
+            "number": 1,
+            "value": "press_to_talk"
+          },
+          {
+            "number": 2,
+            "value": "free_hand"
+          },
+          {
+            "number": 3,
+            "value": "command"
+          },
+          {
+            "number": 4,
+            "value": "correction"
+          }
+        ]
+      },
+      {
+        "name": "auto_clean_enabled",
+        "description": "Whether auto-clean text processing is enabled.",
+        "type": 3,
+        "compliance": {
+          "confidentiality": 2,
+          "reason": "User preference"
+        }
+      },
+      {
+        "name": "shortcuts_enabled",
+        "description": "Whether keyboard shortcuts are globally enabled.",
+        "type": 3,
+        "compliance": {
+          "confidentiality": 2,
+          "reason": "User preference"
+        }
+      },
+      {
+        "name": "selected_language",
+        "description": "Language code currently selected for dictation.",
+        "type": 1,
+        "compliance": {
+          "confidentiality": 2,
+          "reason": "User preference"
+        }
+      },
+      {
+        "name": "keyboard_mode_enabled",
+        "description": "Whether on-screen keyboard mode is enabled.",
+        "type": 3,
+        "compliance": {
+          "confidentiality": 2,
+          "reason": "User preference"
+        }
+      }
+    ],
+    "indexes": [
+      {
+        "fields": [
+          "id"
+        ],
+        "unique": true,
+        "primary": true,
+        "order": false
+      },
+      {
+        "fields": [
+          "data_creator"
+        ],
+        "order": false
+      },
+      {
+        "fields": [
+          "data_updater"
+        ],
+        "order": false
+      },
+      {
+        "fields": [
+          "user_id"
+        ],
+        "unique": true,
+        "order": false
+      }
+    ]
+  },
+  "task": {
+    "id": "69409f7579e90552aac85e4c",
+    "root": "6931ddab540058f9d7a435e5",
+    "project": "6931ddab540058f9d7a435e4",
+    "user": "e871b3c0-80b1-70fa-809f-4e623d70bbe7"
+  },
+  "namespace": {
+    "id": "01987547fc6c72ecb453bd2736bd4ea0",
+    "tenant": 2,
+    "name": "global-1",
+    "default": true
+  },
+  "revision": 1
+}

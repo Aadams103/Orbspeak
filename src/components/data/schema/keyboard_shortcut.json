@@ -1,0 +1,142 @@
+{
+  "id": "102019b2472ae6a795e847e9be6b3b06b08",
+  "version": "102019b2472ae6a783481179c7030c73c57",
+  "schema": {
+    "name": "keyboard_shortcut",
+    "description": "Stores custom keyboard shortcuts defined by users.",
+    "fields": [
+      {
+        "name": "id",
+        "description": "Unique identifier for each data of this entity.",
+        "type": 1,
+        "compliance": {
+          "confidentiality": 2,
+          "reason": "Internal identifier"
+        }
+      },
+      {
+        "name": "data_creator",
+        "description": "id of the user who creates the record",
+        "type": 1,
+        "compliance": {
+          "confidentiality": 2,
+          "reason": "Internal auditing"
+        }
+      },
+      {
+        "name": "data_updater",
+        "description": "id of the user who updates the record",
+        "type": 1,
+        "compliance": {
+          "confidentiality": 2,
+          "reason": "Internal auditing"
+        }
+      },
+      {
+        "name": "create_time",
+        "description": "create time in timestamp unix",
+        "type": 1,
+        "compliance": {
+          "confidentiality": 2,
+          "reason": "Internal auditing"
+        },
+        "format": "timestamp"
+      },
+      {
+        "name": "update_time",
+        "description": "update time in timestamp unix",
+        "type": 1,
+        "compliance": {
+          "confidentiality": 2,
+          "reason": "Internal auditing"
+        },
+        "format": "timestamp"
+      },
+      {
+        "name": "user_id",
+        "description": "ID of the user associated with the shortcut.",
+        "type": 1,
+        "compliance": {
+          "confidentiality": 2,
+          "reason": "Internal linkage to user"
+        }
+      },
+      {
+        "name": "action",
+        "description": "The action triggered by the shortcut (e.g., start_dictation).",
+        "type": 1,
+        "compliance": {
+          "confidentiality": 2,
+          "reason": "Configuration data"
+        }
+      },
+      {
+        "name": "key_combination",
+        "description": "String representation of the key combination (e.g., Ctrl Shift D).",
+        "type": 1,
+        "compliance": {
+          "confidentiality": 2,
+          "reason": "Configuration data"
+        }
+      },
+      {
+        "name": "is_enabled",
+        "description": "Whether this specific shortcut is enabled.",
+        "type": 3,
+        "compliance": {
+          "confidentiality": 2,
+          "reason": "Configuration status"
+        }
+      }
+    ],
+    "indexes": [
+      {
+        "fields": [
+          "id"
+        ],
+        "unique": true,
+        "primary": true,
+        "order": false
+      },
+      {
+        "fields": [
+          "data_creator"
+        ],
+        "order": false
+      },
+      {
+        "fields": [
+          "data_updater"
+        ],
+        "order": false
+      },
+      {
+        "fields": [
+          "user_id"
+        ],
+        "order": false
+      },
+      {
+        "fields": [
+          "key_combination",
+          "user_id"
+        ],
+        "unique": true,
+        "order": false
+      }
+    ]
+  },
+  "task": {
+    "id": "69409f7579e90552aac85e4c",
+    "root": "6931ddab540058f9d7a435e5",
+    "project": "6931ddab540058f9d7a435e4",
+    "user": "e871b3c0-80b1-70fa-809f-4e623d70bbe7"
+  },
+  "namespace": {
+    "id": "01987547fc6c72ecb453bd2736bd4ea0",
+    "tenant": 2,
+    "name": "global-1",
+    "default": true
+  },
+  "revision": 1
+}

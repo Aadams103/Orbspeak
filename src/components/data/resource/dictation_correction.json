@@ -1,0 +1,184 @@
+{
+  "id": "102019b22e952f17aa98cdf7b75e4a987d9",
+  "version": "102019b27a76a5f707fbe6865c0e6e7378a",
+  "schema": {
+    "name": "dictation_correction",
+    "description": "Stores corrections made by users to improve dictation accuracy.",
+    "fields": [
+      {
+        "name": "id",
+        "description": "Unique identifier for each data of this entity.",
+        "type": 1,
+        "compliance": {
+          "confidentiality": 2,
+          "reason": "Internal identifier"
+        }
+      },
+      {
+        "name": "data_creator",
+        "description": "id of the user who creates the record",
+        "type": 1,
+        "compliance": {
+          "confidentiality": 2,
+          "reason": "Internal auditing"
+        }
+      },
+      {
+        "name": "data_updater",
+        "description": "id of the user who updates the record",
+        "type": 1,
+        "compliance": {
+          "confidentiality": 2,
+          "reason": "Internal auditing"
+        }
+      },
+      {
+        "name": "create_time",
+        "description": "create time in timestamp unix",
+        "type": 1,
+        "compliance": {
+          "confidentiality": 2,
+          "reason": "Internal auditing"
+        },
+        "format": "timestamp"
+      },
+      {
+        "name": "update_time",
+        "description": "update time in timestamp unix",
+        "type": 1,
+        "compliance": {
+          "confidentiality": 2,
+          "reason": "Internal auditing"
+        },
+        "format": "timestamp"
+      },
+      {
+        "name": "user_id",
+        "description": "ID of the user associated with the correction.",
+        "type": 1,
+        "compliance": {
+          "confidentiality": 2,
+          "reason": "Internal linkage to user"
+        }
+      },
+      {
+        "name": "profile_id",
+        "description": "ID of the voice profile used during dictation.",
+        "type": 1,
+        "compliance": {
+          "confidentiality": 2,
+          "reason": "Internal relationship"
+        }
+      },
+      {
+        "name": "original_audio_url",
+        "description": "URL to the original audio file.",
+        "type": 1,
+        "compliance": {
+          "confidentiality": 3,
+          "reason": "User voice data"
+        },
+        "encryption": true
+      },
+      {
+        "name": "spoken_text",
+        "description": "The text originally transcribed by the system.",
+        "type": 1,
+        "compliance": {
+          "confidentiality": 3,
+          "reason": "User content"
+        },
+        "encryption": true
+      },
+      {
+        "name": "corrected_text",
+        "description": "The corrected text provided by the user.",
+        "type": 1,
+        "compliance": {
+          "confidentiality": 3,
+          "reason": "User content"
+        },
+        "encryption": true
+      },
+      {
+        "name": "audio_duration",
+        "description": "Duration of the audio in seconds.",
+        "type": 2,
+        "compliance": {
+          "confidentiality": 2,
+          "reason": "Metadata"
+        },
+        "numeric": "float"
+      },
+      {
+        "name": "is_applied",
+        "description": "Whether the correction has been applied to improve the model.",
+        "type": 3,
+        "compliance": {
+          "confidentiality": 2,
+          "reason": "Processing status"
+        }
+      }
+    ],
+    "indexes": [
+      {
+        "fields": [
+          "id"
+        ],
+        "unique": true,
+        "primary": true,
+        "order": false
+      },
+      {
+        "fields": [
+          "data_creator"
+        ],
+        "order": false
+      },
+      {
+        "fields": [
+          "data_updater"
+        ],
+        "order": false
+      },
+      {
+        "fields": [
+          "user_id"
+        ],
+        "order": false
+      },
+      {
+        "fields": [
+          "profile_id"
+        ],
+        "order": false
+      }
+    ],
+    "relations": [
+      {
+        "referencing_fields": [
+          "profile_id"
+        ],
+        "referenced_entity": {
+          "name": "voice_profile"
+        },
+        "referenced_fields": [
+          "id"
+        ]
+      }
+    ]
+  },
+  "task": {
+    "id": "69417266b7d5b6b87ea7d926",
+    "root": "6931ddab540058f9d7a435e5",
+    "project": "6931ddab540058f9d7a435e4",
+    "user": "e871b3c0-80b1-70fa-809f-4e623d70bbe7"
+  },
+  "namespace": {
+    "id": "01987547fc6c72ecb453bd2736bd4ea0",
+    "tenant": 2,
+    "name": "global-1",
+    "default": true
+  },
+  "revision": 1
+}

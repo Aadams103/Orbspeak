@@ -1,0 +1,167 @@
+{
+  "id": "102019b2472ae6a79b6b7edd6d8803be26b",
+  "version": "102019b2472ae6a783481179c7030c73c57",
+  "schema": {
+    "name": "transcription_session",
+    "description": "Stores individual transcription sessions and their metadata.",
+    "fields": [
+      {
+        "name": "id",
+        "description": "Unique identifier for each data of this entity.",
+        "type": 1,
+        "compliance": {
+          "confidentiality": 2,
+          "reason": "Internal identifier"
+        }
+      },
+      {
+        "name": "data_creator",
+        "description": "id of the user who creates the record",
+        "type": 1,
+        "compliance": {
+          "confidentiality": 2,
+          "reason": "Internal auditing"
+        }
+      },
+      {
+        "name": "data_updater",
+        "description": "id of the user who updates the record",
+        "type": 1,
+        "compliance": {
+          "confidentiality": 2,
+          "reason": "Internal auditing"
+        }
+      },
+      {
+        "name": "create_time",
+        "description": "create time in timestamp unix",
+        "type": 1,
+        "compliance": {
+          "confidentiality": 2,
+          "reason": "Internal auditing"
+        },
+        "format": "timestamp"
+      },
+      {
+        "name": "update_time",
+        "description": "update time in timestamp unix",
+        "type": 1,
+        "compliance": {
+          "confidentiality": 2,
+          "reason": "Internal auditing"
+        },
+        "format": "timestamp"
+      },
+      {
+        "name": "user_id",
+        "description": "ID of the user who owns the session.",
+        "type": 1,
+        "compliance": {
+          "confidentiality": 2,
+          "reason": "Internal linkage"
+        }
+      },
+      {
+        "name": "profile_id",
+        "description": "ID of the voice profile used for this session.",
+        "type": 1,
+        "compliance": {
+          "confidentiality": 2,
+          "reason": "Internal relationship"
+        }
+      },
+      {
+        "name": "title",
+        "description": "Title or name of the transcription session.",
+        "type": 1,
+        "compliance": {
+          "confidentiality": 3,
+          "reason": "User content"
+        }
+      },
+      {
+        "name": "transcribed_text",
+        "description": "The resulting text from the transcription.",
+        "type": 1,
+        "compliance": {
+          "confidentiality": 3,
+          "reason": "User content"
+        },
+        "nullable": true,
+        "encryption": true
+      },
+      {
+        "name": "duration",
+        "description": "Duration of the session in milliseconds.",
+        "type": 2,
+        "compliance": {
+          "confidentiality": 2,
+          "reason": "Usage metrics"
+        },
+        "taxonomy": {},
+        "numeric": "int"
+      }
+    ],
+    "indexes": [
+      {
+        "fields": [
+          "id"
+        ],
+        "unique": true,
+        "primary": true,
+        "order": false
+      },
+      {
+        "fields": [
+          "data_creator"
+        ],
+        "order": false
+      },
+      {
+        "fields": [
+          "data_updater"
+        ],
+        "order": false
+      },
+      {
+        "fields": [
+          "create_time",
+          "user_id"
+        ],
+        "order": true
+      },
+      {
+        "fields": [
+          "profile_id"
+        ],
+        "order": false
+      }
+    ],
+    "relations": [
+      {
+        "referencing_fields": [
+          "profile_id"
+        ],
+        "referenced_entity": {
+          "name": "voice_profile"
+        },
+        "referenced_fields": [
+          "id"
+        ]
+      }
+    ]
+  },
+  "task": {
+    "id": "69409f7579e90552aac85e4c",
+    "root": "6931ddab540058f9d7a435e5",
+    "project": "6931ddab540058f9d7a435e4",
+    "user": "e871b3c0-80b1-70fa-809f-4e623d70bbe7"
+  },
+  "namespace": {
+    "id": "01987547fc6c72ecb453bd2736bd4ea0",
+    "tenant": 2,
+    "name": "global-1",
+    "default": true
+  },
+  "revision": 1
+}
