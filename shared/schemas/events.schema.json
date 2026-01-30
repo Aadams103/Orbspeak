@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://orbspeak.local/schemas/events.schema.json",
+  "title": "Orbspeak IPC Events v1",
+  "type": "object",
+  "properties": {
+    "engine.state": {
+      "type": "object",
+      "properties": {
+        "state": {
+          "type": "string",
+          "enum": ["idle", "dictating", "speaking", "error"]
+        }
+      },
+      "required": ["state"],
+      "additionalProperties": true
+    },
+    "dictation.partial": {
+      "type": "object",
+      "properties": {
+        "text": { "type": "string" },
+        "stability": { "type": "number" },
+        "segments": {
+          "type": "array",
+          "items": { "type": "object" }
+        }
+      },
+      "required": ["text"],
+      "additionalProperties": true
+    },
+    "dictation.final": {
+      "type": "object",
+      "properties": {
+        "text": { "type": "string" },
+        "segments": {
+          "type": "array",
+          "items": { "type": "object" }
+        }
+      },
+      "required": ["text"],
+      "additionalProperties": true
+    },
+    "dictation.error": {
+      "type": "object",
+      "properties": {
+        "code": { "type": "string" },
+        "message": { "type": "string" }
+      },
+      "required": ["code", "message"],
+      "additionalProperties": true
+    },
+    "tts.state": {
+      "type": "object",
+      "properties": {
+        "state": {
+          "type": "string",
+          "enum": ["speaking", "paused", "stopped"]
+        }
+      },
+      "required": ["state"],
+      "additionalProperties": true
+    },
+    "resource.usage": {
+      "type": "object",
+      "properties": {
+        "ramMB": { "type": "number" },
+        "vramMB": { "type": "number" },
+        "cpu": { "type": "number" },
+        "gpu": { "type": "number" }
+      },
+      "required": ["ramMB", "cpu"],
+      "additionalProperties": true
+    },
+    "hotkey.fired": {
+      "type": "object",
+      "properties": {
+        "action": { "type": "string" }
+      },
+      "required": ["action"],
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": false
+}
+

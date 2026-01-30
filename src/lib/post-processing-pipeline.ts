@@ -72,20 +72,24 @@ export class PostProcessingPipeline {
 
   /**
    * Main entry point: Process transcript through pipeline
-   * 
+   *
    * @param rawText - Raw transcript from dictation engine
    * @param profileId - Current profile ID (for learning store)
-   * @returns Processed text
+   * @returns Processed text and list of applied shortcut triggers (for UI)
    */
-  public processTranscript(rawText: string, profileId: string | null): string {
+  public processTranscript(
+    rawText: string,
+    profileId: string | null
+  ): { text: string; appliedShortcuts: string[] } {
     if (!rawText || !rawText.trim()) {
-      return rawText;
+      return { text: rawText?.trim() ?? "", appliedShortcuts: [] };
     }
 
     let processed = rawText.trim();
 
-    // Stage 0: Basic text processing (fillers, shortcuts, commands)
-    processed = this.stage0_BasicProcessing(processed);
+    // Stage 0: Basic text processing (fillers, shortcuts, commands); retains appliedShortcuts
+    const stage0Result = this.stage0_BasicProcessing(processed);
+    processed = stage0Result.text;
 
     // Stage 1: Phrase replacements (longest first, highest priority)
     const stage1Result = this.stage1_PhraseReplacements(processed);
@@ -108,7 +112,7 @@ export class PostProcessingPipeline {
       processed = this.stage5_LearningStoreCorrections(processed);
     }
 
-    return processed.trim();
+    return { text: processed.trim(), appliedShortcuts: stage0Result.appliedShortcuts };
   }
 
   // ============================================================================
@@ -117,10 +121,12 @@ export class PostProcessingPipeline {
 
   /**
    * Stage 0: Basic text processing (fillers, shortcuts, commands)
-   * This runs before dictionary corrections
+   * This runs before dictionary corrections. Returns text and applied shortcut triggers.
    */
-  private stage0_BasicProcessing(text: string): string {
-    const result = processTranscription(
+  private stage0_BasicProcessing(
+    text: string
+  ): { text: string; appliedShortcuts: string[] } {
+    return processTranscription(
       text,
       this.config.options.enableShortcuts ? this.config.shortcuts : [],
       {
@@ -130,8 +136,6 @@ export class PostProcessingPipeline {
         applyShortcuts: this.config.options.enableShortcuts ?? true,
       }
     );
-
-    return result.text;
   }
 
   // ============================================================================
@@ -458,7 +462,7 @@ export function processTranscript(
   rawText: string,
   profileId: string | null,
   config: PipelineConfig
-): string {
+): { text: string; appliedShortcuts: string[] } {
   const pipeline = createPipeline(config);
   return pipeline.processTranscript(rawText, profileId);
 }

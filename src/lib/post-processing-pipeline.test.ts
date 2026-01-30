@@ -66,7 +66,7 @@ describe("PostProcessingPipeline", () => {
       const result = pipeline.processTranscript("I live in new york", "test-profile");
 
       // Phrase "new york" should be replaced first, so "york" rule shouldn't apply
-      expect(result).toBe("I live in NYC");
+      expect(result.text).toBe("I live in NYC");
     });
 
     it("should apply word replacements after phrase replacements", () => {
@@ -80,7 +80,7 @@ describe("PostProcessingPipeline", () => {
       const result = pipeline.processTranscript("I live in new york", "test-profile");
 
       // Both should apply: phrase first, then word
-      expect(result).toBe("I reside in NYC");
+      expect(result.text).toBe("I reside in NYC");
     });
 
     it("should apply casing after word replacements", () => {
@@ -95,7 +95,7 @@ describe("PostProcessingPipeline", () => {
 
       // Word replacement first: "there" -> "their"
       // Then casing: "their" -> "Their" (if at start)
-      expect(result).toContain("their");
+      expect(result.text).toContain("their");
     });
 
     it("should apply spelling corrections after word replacements", () => {
@@ -109,7 +109,7 @@ describe("PostProcessingPipeline", () => {
       const result = pipeline.processTranscript("I recieve the package", "test-profile");
 
       // Spelling first, then casing
-      expect(result).toBe("I Receive the package");
+      expect(result.text).toBe("I Receive the package");
     });
   });
 
@@ -125,7 +125,7 @@ describe("PostProcessingPipeline", () => {
       const result = pipeline.processTranscript("this is a test", "test-profile");
 
       // Higher priority rule should win
-      expect(result).toBe("this is a high");
+      expect(result.text).toBe("this is a high");
     });
 
     it("should prefer longer phrases when priorities are equal", () => {
@@ -139,7 +139,7 @@ describe("PostProcessingPipeline", () => {
       const result = pipeline.processTranscript("I live in new york", "test-profile");
 
       // Longer phrase should match first
-      expect(result).toBe("I live in NYC");
+      expect(result.text).toBe("I live in NYC");
     });
 
     it("should prefer longer words when priorities are equal", () => {
@@ -153,7 +153,7 @@ describe("PostProcessingPipeline", () => {
       const result = pipeline.processTranscript("this is a testing", "test-profile");
 
       // Longer word should match first
-      expect(result).toBe("this is a evaluation");
+      expect(result.text).toBe("this is a evaluation");
     });
   });
 
@@ -168,7 +168,7 @@ describe("PostProcessingPipeline", () => {
       const result = pipeline.processTranscript("this is a test", "test-profile");
 
       // Should not apply (would create infinite loop)
-      expect(result).toBe("this is a test");
+      expect(result.text).toBe("this is a test");
     });
 
     it("should prevent indirect loops (replacement matches original pattern)", () => {
@@ -182,7 +182,7 @@ describe("PostProcessingPipeline", () => {
       const result = pipeline.processTranscript("there book", "test-profile");
 
       // First rule should apply, second should be skipped
-      expect(result).toBe("their book");
+      expect(result.text).toBe("their book");
     });
 
     it("should prevent case-insensitive loops", () => {
@@ -196,8 +196,8 @@ describe("PostProcessingPipeline", () => {
       const result = pipeline.processTranscript("this is a test", "test-profile");
 
       // Should apply once, not loop
-      expect(result).toMatch(/test|Test/);
-      expect(result).not.toMatch(/test.*test|Test.*Test/i); // No duplicates
+      expect(result.text).toMatch(/test|Test/);
+      expect(result.text).not.toMatch(/test.*test|Test.*Test/i); // No duplicates
     });
 
     it("should stop after max iterations", () => {
@@ -213,8 +213,8 @@ describe("PostProcessingPipeline", () => {
       const result = pipeline.processTranscript("this is a test", "test-profile");
 
       // Should process but stop at max iterations
-      expect(result).toBeDefined();
-      expect(typeof result).toBe("string");
+      expect(result.text).toBeDefined();
+      expect(typeof result.text).toBe("string");
     });
   });
 
@@ -234,8 +234,8 @@ describe("PostProcessingPipeline", () => {
       const result3 = pipeline.processTranscript(input, "test-profile");
 
       // All should be identical
-      expect(result1).toBe(result2);
-      expect(result2).toBe(result3);
+      expect(result1.text).toBe(result2.text);
+      expect(result2.text).toBe(result3.text);
     });
 
     it("should be idempotent (applying twice produces same result)", () => {
@@ -248,10 +248,10 @@ describe("PostProcessingPipeline", () => {
       const input = "there book";
 
       const result1 = pipeline.processTranscript(input, "test-profile");
-      const result2 = pipeline.processTranscript(result1, "test-profile");
+      const result2 = pipeline.processTranscript(result1.text, "test-profile");
 
       // Second application should not change already-processed text
-      expect(result1).toBe(result2);
+      expect(result1.text).toBe(result2.text);
     });
   });
 
@@ -260,14 +260,14 @@ describe("PostProcessingPipeline", () => {
       const config = createConfig();
       const pipeline = createPipeline(config);
       const result = pipeline.processTranscript("", "test-profile");
-      expect(result).toBe("");
+      expect(result.text).toBe("");
     });
 
     it("should handle text with only whitespace", () => {
       const config = createConfig();
       const pipeline = createPipeline(config);
       const result = pipeline.processTranscript("   ", "test-profile");
-      expect(result).toBe("");
+      expect(result.text).toBe("");
     });
 
     it("should handle entries with special regex characters", () => {
@@ -280,7 +280,7 @@ describe("PostProcessingPipeline", () => {
       const result = pipeline.processTranscript("this is a test (example)", "test-profile");
 
       // Should escape special characters properly
-      expect(result).toBe("this is a example");
+      expect(result.text).toBe("this is a example");
     });
 
     it("should handle case-sensitive replacements", () => {
@@ -293,7 +293,7 @@ describe("PostProcessingPipeline", () => {
       const result = pipeline.processTranscript("this is a Test", "test-profile");
 
       // Should match case-sensitively
-      expect(result).toBe("this is a Exam");
+      expect(result.text).toBe("this is a Exam");
     });
 
     it("should preserve casing when appropriate", () => {
@@ -306,7 +306,7 @@ describe("PostProcessingPipeline", () => {
       const result = pipeline.processTranscript("This is a Test", "test-profile");
 
       // Should preserve capitalization
-      expect(result).toBe("This is a Exam");
+      expect(result.text).toBe("This is a Exam");
     });
   });
 
@@ -324,7 +324,7 @@ describe("PostProcessingPipeline", () => {
       // Phrase stage should apply first, word stage shouldn't re-process phrase results
       // Actually, word stage CAN process phrase results, but phrase should have already matched
       // This test verifies the order is correct
-      expect(result).toContain("NYC");
+      expect(result.text).toContain("NYC");
     });
   });
 

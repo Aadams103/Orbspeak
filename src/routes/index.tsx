@@ -70,9 +70,8 @@ import {
   Edit3,
 } from "lucide-react";
 
-import { useSpeechRecognition } from "@/hooks/use-speech-recognition";
+import { useDictation } from "@/hooks/use-dictation";
 import {
-  processTranscription,
   SUPPORTED_LANGUAGES,
   type VoiceShortcut,
 } from "@/lib/text-processing";
@@ -85,7 +84,9 @@ import TranscriptionSessionORM, {
   type TranscriptionSessionModel,
 } from "@/components/data/orm/orm_transcription_session";
 import VoiceShortcutORM from "@/components/data/orm/orm_voice_shortcut";
-import UserSettingsORM from "@/components/data/orm/orm_user_settings";
+import UserSettingsORM, {
+  type UserSettingsModel,
+} from "@/components/data/orm/orm_user_settings";
 import VoiceProfileORM, {
   type VoiceProfileModel,
 } from "@/components/data/orm/orm_voice_profile";
@@ -708,7 +709,6 @@ function SpeakOrb({
   onDrag: (pos: { x: number; y: number }) => void;
 }) {
   const orbRef = useRef<HTMLDivElement>(null);
-  const orbRef = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);
   const dragStartRef = useRef({ x: 0, y: 0 });
   const positionStartRef = useRef({ x: 0, y: 0 });
@@ -943,6 +943,7 @@ function ExpandablePanel({
   onHelpMeWriteCopy,
   onCopyTranscript,
   onClearTranscript,
+  onSaveTranscript,
   copied,
 }: {
   isExpanded: boolean;
@@ -977,6 +978,7 @@ function ExpandablePanel({
   onHelpMeWriteCopy: (text: string) => void;
   onCopyTranscript: () => void;
   onClearTranscript: () => void;
+  onSaveTranscript: () => void;
   copied: boolean;
 }) {
   if (!isExpanded) return null;
@@ -1229,6 +1231,23 @@ function ExpandablePanel({
                 <TooltipContent>Clear</TooltipContent>
               </Tooltip>
             </TooltipProvider>
+
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 w-8 p-0"
+                    onClick={onSaveTranscript}
+                    disabled={!transcript}
+                  >
+                    <Save className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Save transcript</TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
           </div>
         </div>
       </CardContent>
@@ -1265,6 +1284,7 @@ function ExpandedFullView({
   onHelpMeWriteCopy,
   onCopyTranscript,
   onClearTranscript,
+  onSaveTranscript,
   copied,
   // Settings props
   autoClean,
@@ -1315,6 +1335,7 @@ function ExpandedFullView({
   onHelpMeWriteCopy: (text: string) => void;
   onCopyTranscript: () => void;
   onClearTranscript: () => void;
+  onSaveTranscript: () => void;
   copied: boolean;
   autoClean: boolean;
   onAutoCleanChange: (value: boolean) => void;
@@ -1576,6 +1597,16 @@ function ExpandedFullView({
                   >
                     <Trash2 className="h-4 w-4" />
                     Clear
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-2"
+                    onClick={onSaveTranscript}
+                    disabled={!transcript}
+                  >
+                    <Save className="h-4 w-4" />
+                    Save
                   </Button>
                 </div>
               </div>
@@ -1893,22 +1924,24 @@ function App() {
     end: number;
   } | null>(null);
 
-  // Hooks
-  const speechRecognition = useSpeechRecognition();
+  // Hooks - useDictation picks Engine (desktop) or Web Speech (browser)
+  const speechRecognition = useDictation();
   
   // Runtime interface - unified access to all SpeakOrb capabilities
   const runtime = getRuntime();
   const runtimeHook = useSpeakOrbRuntime();
   const runtimeInitializedRef = useRef(false);
+  const speechRecognitionRef = useRef(speechRecognition);
+  speechRecognitionRef.current = speechRecognition;
 
-  // Initialize runtime on mount
+  // Initialize runtime once on mount (refs avoid re-run when useDictation() identity changes)
   useEffect(() => {
     if (!runtimeInitializedRef.current) {
-      runtime.initialize(speechRecognition);
+      runtime.initialize(speechRecognitionRef.current);
       runtime.setUserId(currentUserId);
       runtimeInitializedRef.current = true;
     }
-  }, [speechRecognition, currentUserId, runtime]);
+  }, [currentUserId, runtime]);
 
   // Migrate all profiles on mount (one-time migration check)
   useEffect(() => {
@@ -2009,16 +2042,13 @@ function App() {
       setOrbState("listening");
     } else if (dictationState?.error) {
       setOrbState("error");
-      // Show error notification (import toast dynamically to avoid issues)
+      const msg =
+        typeof dictationState.error === "string"
+          ? dictationState.error
+          : "An error occurred during dictation";
       import("sonner").then(({ toast }) => {
-        toast.error("Dictation error", {
-          description: dictationState.error?.message || "An error occurred during dictation",
-          duration: 5000,
-        });
-      }).catch(() => {
-        // Fallback if toast not available
-        console.error("Dictation error:", dictationState.error);
-      });
+        toast.error("Dictation error", { description: msg, duration: 5000 });
+      }).catch(() => console.error("Dictation error:", dictationState.error));
       setTimeout(() => setOrbState("idle"), 2000);
     } else {
       setOrbState("idle");
@@ -2255,6 +2285,10 @@ function App() {
     },
   });
 
+  // Keep ref to latest user settings for persistence
+  const latestUserSettingsRef = useRef<UserSettingsModel | null>(null);
+  if (userSettings) latestUserSettingsRef.current = userSettings;
+
   // Sync with user settings
   useEffect(() => {
     if (userSettings) {
@@ -2263,6 +2297,23 @@ function App() {
       setSelectedLanguage(userSettings.selected_language || "en-US");
     }
   }, [userSettings]);
+
+  // Persist autoClean, enableShortcuts, selectedLanguage when toggled in index (expanded panel)
+  useEffect(() => {
+    const settings = latestUserSettingsRef.current;
+    if (!currentUserId || !settings) return;
+    userSettingsORMRef.current
+      .setUserSettingsByUserId(currentUserId, {
+        ...settings,
+        auto_clean_enabled: autoClean,
+        shortcuts_enabled: enableShortcuts,
+        selected_language: selectedLanguage,
+      })
+      .then(() => {
+        queryClient.invalidateQueries({ queryKey: ["userSettings"] });
+      })
+      .catch(console.error);
+  }, [autoClean, enableShortcuts, selectedLanguage, currentUserId, queryClient]);
 
   // Fetch voice shortcuts
   const { data: shortcuts = [] } = useQuery({
@@ -2316,7 +2367,7 @@ function App() {
     });
   }, [autoClean, enableShortcuts, runtime]);
 
-  // Save transcription mutation
+  // Save transcription mutation (uses active profile when set)
   const saveTranscriptionMutation = useMutation({
     mutationFn: async (data: {
       title: string;
@@ -2327,7 +2378,7 @@ function App() {
         await transcriptionSessionORMRef.current.insertTranscriptionSession([
           {
             user_id: currentUserId,
-            profile_id: "",
+            profile_id: activeProfile?.id ?? "",
             title: data.title || `Session ${new Date().toLocaleString()}`,
             transcribed_text: data.text,
             duration: data.duration,
@@ -2337,8 +2388,33 @@ function App() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["transcriptionHistory"] });
+      import("sonner").then(({ toast }) =>
+        toast.success("Transcript saved")
+      ).catch(() => {});
+    },
+    onError: (err) => {
+      console.error("Save transcription failed:", err);
+      import("sonner").then(({ toast }) =>
+        toast.error("Could not save transcript")
+      ).catch(() => {});
     },
   });
+
+  const handleSaveTranscript = useCallback(() => {
+    const durationMs = sessionStartTime
+      ? Date.now() - sessionStartTime
+      : 0;
+    const durationSec = Math.max(0, Math.round(durationMs / 1000));
+    saveTranscriptionMutation.mutate({
+      title: `Session ${new Date().toLocaleString()}`,
+      text: processedTranscript,
+      duration: durationSec,
+    });
+  }, [
+    processedTranscript,
+    sessionStartTime,
+    saveTranscriptionMutation,
+  ]);
 
   // Refs to track last processed values
   const lastProcessedInputRef = useRef<string>("");
@@ -2366,25 +2442,10 @@ function App() {
         return;
       }
 
-      // Use runtime for post-processing
-      const processedText = runtime.processText(text);
-      
-      // Extract applied shortcuts (for UI display)
-      const result = processTranscription(
-        text,
-        enableShortcuts ? activeShortcuts : [],
-        {
-          removeFillers: autoClean,
-          handleCommands: true,
-          formatNumbers: false,
-          applyShortcuts: enableShortcuts,
-        }
-      );
-
+      const { text: processedText, appliedShortcuts: applied } =
+        runtime.processText(text);
       setProcessedTranscript(processedText);
-      setAppliedShortcuts(
-        Array.isArray(result?.appliedShortcuts) ? result.appliedShortcuts : []
-      );
+      setAppliedShortcuts(Array.isArray(applied) ? applied : []);
     },
     [
       autoClean,
@@ -2705,6 +2766,7 @@ function App() {
         onHelpMeWriteCopy={handleHelpMeWriteCopy}
         onCopyTranscript={() => copyToClipboard(processedTranscript)}
         onClearTranscript={handleClearTranscript}
+        onSaveTranscript={handleSaveTranscript}
         copied={copied}
       />
 
@@ -2790,6 +2852,7 @@ function App() {
         onHelpMeWriteCopy={handleHelpMeWriteCopy}
         onCopyTranscript={() => copyToClipboard(processedTranscript)}
         onClearTranscript={handleClearTranscript}
+        onSaveTranscript={handleSaveTranscript}
         copied={copied}
         autoClean={autoClean}
         onAutoCleanChange={setAutoClean}

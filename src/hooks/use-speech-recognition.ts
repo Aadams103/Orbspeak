@@ -116,7 +116,12 @@ export function useSpeechRecognition(): UseSpeechRecognitionReturn {
       }
       setState((prev) => ({
         ...prev,
-        error: `Speech recognition error: ${event.error}`,
+        error:
+          event.error === "not-allowed"
+            ? "Microphone access was denied. Allow access in system/browser settings and try again."
+            : event.error === "no-speech"
+              ? "No speech detected. Try again."
+              : `Speech recognition error: ${event.error}`,
       }));
     };
 

@@ -1,0 +1,148 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://orbspeak.local/schemas/commands.schema.json",
+  "title": "Orbspeak IPC Commands v1",
+  "type": "object",
+  "properties": {
+    "engine.ping": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "audio.listInputDevices": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "audio.setInputDevice": {
+      "type": "object",
+      "properties": {
+        "deviceId": { "type": "string" }
+      },
+      "required": ["deviceId"],
+      "additionalProperties": false
+    },
+    "dictation.start": {
+      "type": "object",
+      "properties": {
+        "mode": { "type": "string" },
+        "profileId": { "type": "string" }
+      },
+      "required": ["mode", "profileId"],
+      "additionalProperties": true
+    },
+    "dictation.stop": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "dictation.cancel": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "tts.speak": {
+      "type": "object",
+      "properties": {
+        "text": { "type": "string" },
+        "voiceId": { "type": "string" },
+        "rate": { "type": "number" }
+      },
+      "required": ["text"],
+      "additionalProperties": true
+    },
+    "tts.pause": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "tts.resume": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "tts.stop": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "profiles.list": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "profiles.setActive": {
+      "type": "object",
+      "properties": {
+        "profileId": { "type": "string" }
+      },
+      "required": ["profileId"],
+      "additionalProperties": false
+    },
+    "profiles.export": {
+      "type": "object",
+      "properties": {
+        "profileId": { "type": "string" }
+      },
+      "required": ["profileId"],
+      "additionalProperties": false
+    },
+    "profiles.import": {
+      "type": "object",
+      "properties": {
+        "payload": { "type": "string" }
+      },
+      "required": ["payload"],
+      "additionalProperties": false
+    },
+    "learning.recordCorrection": {
+      "type": "object",
+      "properties": {
+        "heard": { "type": "string" },
+        "intended": { "type": "string" },
+        "leftContext": { "type": "string" },
+        "rightContext": { "type": "string" },
+        "appId": { "type": "string" }
+      },
+      "required": ["heard", "intended"],
+      "additionalProperties": false
+    },
+    "learning.listRules": {
+      "type": "object",
+      "properties": {
+        "profileId": { "type": "string" }
+      },
+      "required": ["profileId"],
+      "additionalProperties": false
+    },
+    "learning.deleteRule": {
+      "type": "object",
+      "properties": {
+        "ruleId": { "type": "string" }
+      },
+      "required": ["ruleId"],
+      "additionalProperties": false
+    },
+    "settings.get": {
+      "type": "object",
+      "properties": {
+        "key": { "type": "string" }
+      },
+      "required": ["key"],
+      "additionalProperties": false
+    },
+    "settings.set": {
+      "type": "object",
+      "properties": {
+        "values": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      },
+      "required": ["values"],
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}
+

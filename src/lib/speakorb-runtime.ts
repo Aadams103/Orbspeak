@@ -431,12 +431,13 @@ export class SpeakOrbRuntime {
   }
 
   /**
-   * Apply post-processing pipeline to text
-   * Uses the formal pipeline with explicit stages
+   * Apply post-processing pipeline to text.
+   * Uses the formal pipeline with explicit stages.
+   * Assumes the current profile's learning store is initialized (e.g. after setCurrentProfile).
    */
-  public processText(text: string): string {
+  public processText(text: string): { text: string; appliedShortcuts: string[] } {
     if (!text || !text.trim()) {
-      return text;
+      return { text: text ?? "", appliedShortcuts: [] };
     }
 
     // Ensure pipeline is built
@@ -445,11 +446,9 @@ export class SpeakOrbRuntime {
     }
 
     if (!this.pipeline) {
-      // Fallback if pipeline can't be built
-      return text;
+      return { text, appliedShortcuts: [] };
     }
 
-    // Use formal pipeline
     return this.pipeline.processTranscript(text, this.currentProfileId);
   }
 

@@ -6,6 +6,7 @@
     "dev": "vite --port 3000",
     "start": "vite --port 3000",
     "build": "npm run check:safe && vite build",
+    "build:no-check": "npx vite build",
     "serve": "vite preview",
     "test": "vitest run",
     "check": "tsgo --noEmit && npm run lint:radix -- --fix && npm run format",

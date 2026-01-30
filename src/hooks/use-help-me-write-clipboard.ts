@@ -125,7 +125,11 @@ export function useHelpMeWriteClipboard(): UseHelpMeWriteClipboardReturn {
       return true;
     } catch (err) {
       console.error("Failed to read clipboard:", err);
-      setError("Failed to read clipboard. Please ensure clipboard permissions are granted.");
+      const msg = "Could not access clipboard. Check permissions.";
+      setError(msg);
+      import("sonner").then(({ toast }) =>
+        toast.error(msg, { duration: 5000 })
+      ).catch(() => {});
       return false;
     }
   }, []);

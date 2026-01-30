@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://orbspeak.local/schemas/envelope.schema.json",
+  "title": "Orbspeak IPC Envelope v1",
+  "type": "object",
+  "required": ["type", "v"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Correlation id (UUID) for requests and responses."
+    },
+    "type": {
+      "type": "string",
+      "enum": ["request", "response", "event"]
+    },
+    "method": {
+      "type": "string",
+      "description": "Method name for requests, e.g. engine.ping."
+    },
+    "event": {
+      "type": "string",
+      "description": "Event name for events, e.g. dictation.partial."
+    },
+    "params": {
+      "type": "object",
+      "description": "Request parameters object.",
+      "additionalProperties": true
+    },
+    "ok": {
+      "type": "boolean",
+      "description": "Response success flag."
+    },
+    "result": {
+      "type": "object",
+      "description": "Response result payload.",
+      "additionalProperties": true
+    },
+    "error": {
+      "type": "object",
+      "description": "Response error payload.",
+      "properties": {
+        "code": { "type": "string" },
+        "message": { "type": "string" }
+      },
+      "required": ["code", "message"],
+      "additionalProperties": false
+    },
+    "payload": {
+      "type": "object",
+      "description": "Event payload.",
+      "additionalProperties": true
+    },
+    "v": {
+      "type": "integer",
+      "const": 1
+    }
+  },
+  "additionalProperties": true
+}
+
