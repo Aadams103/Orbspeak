@@ -1,0 +1,2 @@
+# Install the vendored Qwen3-TTS package, then launch sidecar.py.
+-e ../../third_party/qwen3-tts

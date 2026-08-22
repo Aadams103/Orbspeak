@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using System.Threading.Channels;
 using Orbspeak.Engine.Asr;
+using Orbspeak.Engine.Tts;
 using Orbspeak.Shared;
 
 namespace Orbspeak.Engine;
@@ -65,6 +66,8 @@ internal sealed class EngineHost
     private readonly ModelManager _modelManager;
     private readonly IAudioInput _audioInput;
     private readonly WhisperAsrPipeline _asrPipeline;
+    private readonly OpenAiAsrPipeline _openAiAsr;
+    private readonly TtsService _tts;
     private readonly EngineStatusSnapshot _status = new();
     private readonly object _dictationLock = new();
 
@@ -72,6 +75,7 @@ internal sealed class EngineHost
     private AudioBuffer? _currentBuffer;
     private Action<IpcEnvelope>? _currentEnqueue;
     private Action<short[], int, int>? _currentFeedHandler;
+    private bool _sessionUsesOpenAi;
 
     public EngineHost(string pipeName, JsonFileLogger logger, EngineConfig config, ModelManager modelManager)
     {
@@ -83,6 +87,8 @@ internal sealed class EngineHost
         _asrPipeline = new WhisperAsrPipeline(
             config.AsrModelPath ?? EngineConfig.GetDefaultAsrModelPath(),
             logger);
+        _openAiAsr = new OpenAiAsrPipeline(config, logger);
+        _tts = new TtsService(config, logger);
         _serializerOptions = new JsonSerializerOptions
         {
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
@@ -225,6 +231,29 @@ internal sealed class EngineHost
                 case IpcMethods.SettingsSet:
                     enqueue(HandleSettingsSet(request));
                     break;
+                case IpcMethods.TtsSpeak:
+                    HandleTtsSpeak(request, enqueue);
+                    break;
+                case IpcMethods.TtsPause:
+                    _tts.Pause();
+                    enqueue(new ResponseMessage { Id = request.Id, Ok = true, Result = new { paused = true } });
+                    enqueue(new EventMessage { Event = IpcEvents.TtsState, Payload = new { state = "paused" } });
+                    break;
+                case IpcMethods.TtsResume:
+                    _tts.Resume();
+                    enqueue(new ResponseMessage { Id = request.Id, Ok = true, Result = new { resumed = true } });
+                    enqueue(new EventMessage { Event = IpcEvents.TtsState, Payload = new { state = "speaking" } });
+                    break;
+                case IpcMethods.TtsStop:
+                    _tts.Stop();
+                    if (_status.State == "speaking")
+                    {
+                        _status.State = "idle";
+                    }
+                    enqueue(new ResponseMessage { Id = request.Id, Ok = true, Result = new { stopped = true } });
+                    enqueue(new EventMessage { Event = IpcEvents.TtsState, Payload = new { state = "stopped" } });
+                    enqueue(new EventMessage { Event = IpcEvents.EngineState, Payload = new EngineStateEventPayload { State = "idle" } });
+                    break;
                 default:
                     enqueue(new ResponseMessage
                     {
@@ -257,7 +286,8 @@ internal sealed class EngineHost
 
     private ResponseMessage HandleSettingsGet(RequestMessage request)
     {
-        if (request.Params is SettingsGetParams getParams && getParams.Key == "debug.dump")
+        var key = ReadStringParam(request.Params, "key");
+        if (key == "debug.dump")
         {
             var snapshot = new
             {
@@ -278,6 +308,34 @@ internal sealed class EngineHost
             };
         }
 
+        if (key == "audio.providers")
+        {
+            return new ResponseMessage
+            {
+                Id = request.Id,
+                Ok = true,
+                Result = new
+                {
+                    asr = new[]
+                    {
+                        new { id = "local", label = "Whisper.net (on device)", cost = "free" },
+                        new { id = "openai", label = "OpenAI Whisper / gpt-4o-transcribe", cost = "paid-api" }
+                    },
+                    tts = new[]
+                    {
+                        new { id = "qwen3", label = "Qwen3-TTS sidecar", cost = "free-local-weights" },
+                        new { id = "openai", label = "OpenAI TTS", cost = "paid-api" }
+                    },
+                    active = new
+                    {
+                        asr = _config.UsesOpenAiAsr ? "openai" : "local",
+                        tts = _config.TtsProvider,
+                        openaiKeyConfigured = SecretStore.GetOpenAiApiKey() is not null
+                    }
+                }
+            };
+        }
+
         return new ResponseMessage
         {
             Id = request.Id,
@@ -288,7 +346,34 @@ internal sealed class EngineHost
 
     private ResponseMessage HandleSettingsSet(RequestMessage request)
     {
-        // Accept any settings for now; no-op implementation.
+        if (request.Params is JsonElement root &&
+            root.ValueKind == JsonValueKind.Object &&
+            root.TryGetProperty("values", out var values) &&
+            values.ValueKind == JsonValueKind.Object)
+        {
+            if (values.TryGetProperty("asrProvider", out var asr) && asr.ValueKind == JsonValueKind.String)
+            {
+                _config.AsrProvider = asr.GetString() ?? _config.AsrProvider;
+            }
+
+            if (values.TryGetProperty("ttsProvider", out var tts) && tts.ValueKind == JsonValueKind.String)
+            {
+                _config.TtsProvider = tts.GetString() ?? _config.TtsProvider;
+            }
+
+            if (values.TryGetProperty("openaiAsrModel", out var asrModel) && asrModel.ValueKind == JsonValueKind.String)
+            {
+                _config.OpenAiAsrModel = asrModel.GetString() ?? _config.OpenAiAsrModel;
+            }
+
+            if (values.TryGetProperty("openaiApiKey", out var apiKey) && apiKey.ValueKind == JsonValueKind.String)
+            {
+                SecretStore.SetOpenAiApiKey(apiKey.GetString());
+            }
+
+            _config.Save();
+        }
+
         return new ResponseMessage
         {
             Id = request.Id,
@@ -297,9 +382,62 @@ internal sealed class EngineHost
         };
     }
 
+    private void HandleTtsSpeak(RequestMessage request, Action<IpcEnvelope> enqueue)
+    {
+        var text = ReadStringParam(request.Params, "text");
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            enqueue(new ResponseMessage
+            {
+                Id = request.Id,
+                Ok = false,
+                Error = new IpcError { Code = "tts.missing_text", Message = "tts.speak requires text." }
+            });
+            return;
+        }
+
+        var voiceId = ReadStringParam(request.Params, "voiceId");
+        enqueue(new ResponseMessage { Id = request.Id, Ok = true, Result = new { started = true } });
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await _tts.SpeakAsync(text, voiceId, rate: null, enqueue, CancellationToken.None).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _logger.Error("tts.lifecycle", "tts.speak failed", ex);
+                enqueue(new EventMessage
+                {
+                    Event = IpcEvents.TtsState,
+                    Payload = new { state = "stopped", error = ex.Message }
+                });
+                enqueue(new EventMessage
+                {
+                    Event = IpcEvents.EngineState,
+                    Payload = new EngineStateEventPayload { State = "idle" }
+                });
+            }
+        }, CancellationToken.None);
+    }
+
+    private static string? ReadStringParam(object? raw, string name)
+    {
+        if (raw is JsonElement el &&
+            el.ValueKind == JsonValueKind.Object &&
+            el.TryGetProperty(name, out var prop) &&
+            prop.ValueKind == JsonValueKind.String)
+        {
+            return prop.GetString();
+        }
+
+        return null;
+    }
+
     private void HandleDictationStart(RequestMessage request, Action<IpcEnvelope> enqueue)
     {
         var modelPath = _config.AsrModelPath ?? EngineConfig.GetDefaultAsrModelPath();
+        var useOpenAi = _config.UsesOpenAiAsr;
 
         lock (_dictationLock)
         {
@@ -314,9 +452,11 @@ internal sealed class EngineHost
                 return;
             }
 
-            enqueue(new ResponseMessage { Id = request.Id, Ok = true, Result = new { started = true } });
+            enqueue(new ResponseMessage { Id = request.Id, Ok = true, Result = new { started = true, provider = useOpenAi ? "openai" : "local" } });
             enqueue(new EventMessage { Event = IpcEvents.EngineState, Payload = new EngineStateEventPayload { State = "dictating" } });
             _status.State = "dictating";
+            _sessionUsesOpenAi = useOpenAi;
+            _openAiAsr.Reset();
 
             var cts = new CancellationTokenSource();
             _currentDictationCts = cts;
@@ -324,6 +464,12 @@ internal sealed class EngineHost
 
             var buffer = new AudioBuffer(samples =>
             {
+                if (useOpenAi)
+                {
+                    _openAiAsr.Append(samples);
+                    return;
+                }
+
                 if (_currentEnqueue is null || _currentDictationCts is null) return;
                 _ = Task.Run(async () =>
                 {
@@ -344,6 +490,17 @@ internal sealed class EngineHost
             {
                 try
                 {
+                    if (useOpenAi)
+                    {
+                        if (SecretStore.GetOpenAiApiKey() is null)
+                        {
+                            throw new InvalidOperationException("Set OPENAI_API_KEY or save it under %LOCALAPPDATA%\\Orbspeak\\config\\secrets.json.");
+                        }
+
+                        await _audioInput.StartAsync(cts.Token).ConfigureAwait(false);
+                        return;
+                    }
+
                     if (!await AsrModelLoader.EnsureModelExistsAsync(modelPath, cts.Token).ConfigureAwait(false))
                     {
                         enqueue(new EventMessage { Event = IpcEvents.DictationError, Payload = new { code = "model_download_failed", message = "Could not download ASR model." } });
@@ -355,6 +512,7 @@ internal sealed class EngineHost
                             _currentDictationCts = null;
                             _currentBuffer = null;
                             _currentEnqueue = null;
+                            _sessionUsesOpenAi = false;
                             if (_currentFeedHandler is not null) { _audioInput.FrameCaptured -= _currentFeedHandler; _currentFeedHandler = null; }
                         }
                         return;
@@ -374,6 +532,7 @@ internal sealed class EngineHost
                         _currentDictationCts = null;
                         _currentBuffer = null;
                         _currentEnqueue = null;
+                        _sessionUsesOpenAi = false;
                         if (_currentFeedHandler is not null) { _audioInput.FrameCaptured -= _currentFeedHandler; _currentFeedHandler = null; }
                     }
                 }
@@ -386,16 +545,19 @@ internal sealed class EngineHost
         CancellationTokenSource? cts;
         AudioBuffer? buffer;
         Action<short[], int, int>? feedHandler;
+        var useOpenAi = false;
 
         lock (_dictationLock)
         {
             cts = _currentDictationCts;
             buffer = _currentBuffer;
             feedHandler = _currentFeedHandler;
+            useOpenAi = _sessionUsesOpenAi;
             _currentDictationCts = null;
             _currentBuffer = null;
             _currentEnqueue = null;
             _currentFeedHandler = null;
+            _sessionUsesOpenAi = false;
         }
 
         if (cts is null)
@@ -414,6 +576,10 @@ internal sealed class EngineHost
                 await _audioInput.StopAsync().ConfigureAwait(false);
                 buffer?.Stop();
                 buffer?.Flush();
+                if (useOpenAi)
+                {
+                    await _openAiAsr.TranscribeAndEnqueueAsync(enqueue, CancellationToken.None).ConfigureAwait(false);
+                }
             }
             catch (Exception ex)
             {
@@ -443,6 +609,8 @@ internal sealed class EngineHost
             _currentBuffer = null;
             _currentEnqueue = null;
             _currentFeedHandler = null;
+            _sessionUsesOpenAi = false;
+            _openAiAsr.Reset();
         }
 
         if (cts is null)

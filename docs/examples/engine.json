@@ -1,0 +1,15 @@
+{
+  "Backend": "Local",
+  "RamBudgetMb": 8192,
+  "VramBudgetMb": 6144,
+  "AsrProvider": "local",
+  "TtsProvider": "qwen3",
+  "OpenAiAsrModel": "whisper-1",
+  "OpenAiTtsModel": "gpt-4o-mini-tts",
+  "OpenAiTtsVoice": "alloy",
+  "OpenAiLanguage": "en",
+  "QwenSidecarUrl": "http://127.0.0.1:8765",
+  "QwenModel": "Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice",
+  "QwenSpeaker": "Vivian",
+  "QwenLanguage": "English"
+}

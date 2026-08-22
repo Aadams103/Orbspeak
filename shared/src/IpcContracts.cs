@@ -150,6 +150,18 @@ public sealed class DictationStartParams
     public string ProfileId { get; init; } = string.Empty;
 }
 
+public sealed class TtsSpeakParams
+{
+    [JsonPropertyName("text")]
+    public string Text { get; init; } = string.Empty;
+
+    [JsonPropertyName("voiceId")]
+    public string? VoiceId { get; init; }
+
+    [JsonPropertyName("rate")]
+    public double? Rate { get; init; }
+}
+
 public sealed class EngineStateEventPayload
 {
     [JsonPropertyName("state")]

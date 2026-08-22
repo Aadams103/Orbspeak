@@ -94,3 +94,40 @@ storybook-static
 # Temporary folders
 tmp/
 temp/
+
+# Python sidecar / vendored TTS
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.egg-info/
+
+# Downloaded model weights (Hugging Face / ggml). Never commit these.
+models/
+*.gguf
+*.safetensors
+third_party/openwhispr/node_modules/
+third_party/openwhispr/resources/bin/
+
+# User secrets (OpenAI keys live here on the machine, not in git)
+**/secrets.json
+
+# Python sidecar
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.egg-info/
+
+# Model weights and runtime downloads (never commit)
+models/
+*.gguf
+*.safetensors
+*.onnx
+third_party/openwhispr/node_modules/
+third_party/openwhispr/resources/bin/
+third_party/qwen3-tts/.venv/
+
+# Local secrets
+secrets.json
+**/secrets.json

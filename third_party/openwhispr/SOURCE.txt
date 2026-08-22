@@ -1,0 +1,10 @@
+Upstream: https://github.com/OpenWhispr/openwhispr
+Imported from local archive: openwhispr-main (package version 1.8.3)
+License: MIT (see LICENSE)
+Copyright (c) 2024 OpenWhispr Team
+
+This tree is vendored into Orbspeak as the reference implementation for
+bring-your-own-key cloud transcription (OpenAI Whisper / gpt-4o-transcribe),
+local Whisper.cpp / NVIDIA Parakeet, and desktop dictation UX patterns.
+
+Secrets (.env) and downloaded binaries (resources/bin, node_modules) were not copied.

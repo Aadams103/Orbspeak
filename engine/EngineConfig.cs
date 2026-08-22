@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace Orbspeak.Engine;
 
@@ -30,6 +31,40 @@ public sealed class EngineConfig
     /// Path to the ASR (Whisper) model file. Default: %LOCALAPPDATA%\Orbspeak\models\ggml-base.en.bin
     /// </summary>
     public string? AsrModelPath { get; set; }
+
+    /// <summary>
+    /// Speech-to-text backend: local (Whisper.net) or openai (paid API).
+    /// </summary>
+    public string AsrProvider { get; set; } = "local";
+
+    /// <summary>
+    /// Speech-to-speech backend: qwen3 (local sidecar) or openai (paid API).
+    /// </summary>
+    public string TtsProvider { get; set; } = "qwen3";
+
+    public string OpenAiAsrModel { get; set; } = "whisper-1";
+
+    public string OpenAiTtsModel { get; set; } = "gpt-4o-mini-tts";
+
+    public string OpenAiTtsVoice { get; set; } = "alloy";
+
+    /// <summary>
+    /// Optional BCP-47 / ISO language hint for OpenAI transcription.
+    /// </summary>
+    public string? OpenAiLanguage { get; set; }
+
+    public string QwenSidecarUrl { get; set; } = "http://127.0.0.1:8765";
+
+    public string QwenModel { get; set; } = "Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice";
+
+    public string QwenSpeaker { get; set; } = "Vivian";
+
+    public string QwenLanguage { get; set; } = "English";
+
+    [JsonIgnore]
+    public bool UsesOpenAiAsr =>
+        string.Equals(AsrProvider, "openai", StringComparison.OrdinalIgnoreCase) ||
+        Backend == BackendMode.Cloud;
 
     public static EngineConfig Load()
     {

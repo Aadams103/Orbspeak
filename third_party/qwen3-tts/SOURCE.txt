@@ -1,0 +1,8 @@
+Upstream: https://github.com/QwenLM/Qwen3-TTS
+Imported from local archive: Qwen3-TTS-main
+License: Apache License 2.0 (see LICENSE)
+Copyright 2026 Alibaba Cloud / Qwen Team
+
+This tree is vendored into Orbspeak for local text-to-speech.
+Model weights are not included. Download them from Hugging Face or ModelScope
+on first run; see docs/AUDIO_MASTERY.md.
