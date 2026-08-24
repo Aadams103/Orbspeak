@@ -8,55 +8,82 @@ namespace Orbspeak.Engine;
 /// </summary>
 internal static class SecretStore
 {
-    public static string? GetOpenAiApiKey()
-    {
-        var env = Environment.GetEnvironmentVariable("OPENAI_API_KEY");
-        if (!string.IsNullOrWhiteSpace(env))
-        {
-            return env.Trim();
-        }
+    public static string? GetOpenAiApiKey() =>
+        ReadEnvOrFile("OPENAI_API_KEY", "openaiApiKey");
 
-        var path = GetSecretsPath();
-        if (!File.Exists(path))
-        {
-            return null;
-        }
+    public static string? GetXaiApiKey() =>
+        ReadEnvOrFile("XAI_API_KEY", "xaiApiKey");
 
-        try
-        {
-            using var doc = JsonDocument.Parse(File.ReadAllText(path));
-            if (doc.RootElement.TryGetProperty("openaiApiKey", out var key) &&
-                key.ValueKind == JsonValueKind.String)
-            {
-                var value = key.GetString();
-                return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
-            }
-        }
-        catch
-        {
-            return null;
-        }
+    public static void SetOpenAiApiKey(string? apiKey) =>
+        MergeSecret("openaiApiKey", apiKey);
 
-        return null;
-    }
-
-    public static void SetOpenAiApiKey(string? apiKey)
-    {
-        var path = GetSecretsPath();
-        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        var payload = new Dictionary<string, string?>
-        {
-            ["openaiApiKey"] = string.IsNullOrWhiteSpace(apiKey) ? null : apiKey.Trim()
-        };
-        File.WriteAllText(path, JsonSerializer.Serialize(payload, new JsonSerializerOptions
-        {
-            WriteIndented = true
-        }));
-    }
+    public static void SetXaiApiKey(string? apiKey) =>
+        MergeSecret("xaiApiKey", apiKey);
 
     public static string GetSecretsPath()
     {
         var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
         return Path.Combine(localAppData, "Orbspeak", "config", "secrets.json");
+    }
+
+    private static string? ReadEnvOrFile(string envName, string jsonName)
+    {
+        var env = Environment.GetEnvironmentVariable(envName);
+        if (!string.IsNullOrWhiteSpace(env))
+        {
+            return env.Trim();
+        }
+
+        var map = ReadAll();
+        return map.TryGetValue(jsonName, out var value) && !string.IsNullOrWhiteSpace(value)
+            ? value.Trim()
+            : null;
+    }
+
+    private static void MergeSecret(string name, string? value)
+    {
+        var map = ReadAll();
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            map.Remove(name);
+        }
+        else
+        {
+            map[name] = value.Trim();
+        }
+
+        var path = GetSecretsPath();
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, JsonSerializer.Serialize(map, new JsonSerializerOptions
+        {
+            WriteIndented = true
+        }));
+    }
+
+    private static Dictionary<string, string?> ReadAll()
+    {
+        var path = GetSecretsPath();
+        if (!File.Exists(path))
+        {
+            return new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        try
+        {
+            using var doc = JsonDocument.Parse(File.ReadAllText(path));
+            var map = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+            foreach (var prop in doc.RootElement.EnumerateObject())
+            {
+                map[prop.Name] = prop.Value.ValueKind == JsonValueKind.String
+                    ? prop.Value.GetString()
+                    : prop.Value.ToString();
+            }
+
+            return map;
+        }
+        catch
+        {
+            return new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+        }
     }
 }

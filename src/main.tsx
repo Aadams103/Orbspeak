@@ -42,6 +42,12 @@ const queryClient = new QueryClient({
 	},
 });
 
+// Desktop (WebView2) serves the app from https://app.local/index.html.
+// Normalize the path so the router matches "/" instead of showing Not Found.
+if (window.location.pathname.endsWith("/index.html")) {
+	window.history.replaceState(null, "", "/");
+}
+
 // Create a new router instance
 const router = createRouter({
 	routeTree,

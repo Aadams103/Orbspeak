@@ -1,3 +1,4 @@
+using NAudio.CoreAudioApi;
 using NAudio.Wave;
 
 namespace Orbspeak.Engine;
@@ -5,7 +6,7 @@ namespace Orbspeak.Engine;
 /// <summary>
 /// Abstraction over microphone capture. Produces 16-bit PCM audio frames.
 /// </summary>
-public interface IAudioInput : IDisposable
+internal interface IAudioInput : IDisposable
 {
     event Action<short[], int, int>? FrameCaptured;
 
@@ -16,7 +17,7 @@ public interface IAudioInput : IDisposable
 /// <summary>
 /// WASAPI-based microphone capture using NAudio.
 /// </summary>
-public sealed class WasapiAudioInput : IAudioInput
+internal sealed class WasapiAudioInput : IAudioInput
 {
     private readonly JsonFileLogger _logger;
     private WasapiCapture? _capture;

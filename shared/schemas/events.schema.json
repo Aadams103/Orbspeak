@@ -60,6 +60,17 @@
       "required": ["state"],
       "additionalProperties": true
     },
+    "tts.progress": {
+      "type": "object",
+      "properties": {
+        "index": { "type": "integer" },
+        "text": { "type": "string" },
+        "startMs": { "type": "integer" },
+        "endMs": { "type": "integer" }
+      },
+      "required": ["index", "text"],
+      "additionalProperties": true
+    },
     "resource.usage": {
       "type": "object",
       "properties": {

@@ -131,3 +131,7 @@ third_party/qwen3-tts/.venv/
 # Local secrets
 secrets.json
 **/secrets.json
+
+# .NET build output
+[Bb]in/
+[Oo]bj/

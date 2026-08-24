@@ -1,18 +1,6 @@
 import { useState, useCallback, useEffect } from "react";
 import type { SpeechRecognitionState, UseSpeechRecognitionReturn } from "@/hooks/use-speech-recognition";
-
-declare global {
-  interface Window {
-    __engineIpc?: {
-      onPartial: (f: (p: { text?: string }) => void) => void;
-      onFinal: (f: (p: { text?: string }) => void) => void;
-      onState: (f: (p: { state?: string }) => void) => void;
-      onError: (f: (p: { code?: string; message?: string }) => void) => void;
-      start: (opts?: { profileId?: string; mode?: string }) => void;
-      stop: () => void;
-    };
-  }
-}
+import "@/lib/engine-ipc";
 
 export type UseEngineDictationReturn = UseSpeechRecognitionReturn;
 

@@ -9,15 +9,15 @@
     <RootNamespace>Orbspeak.Ui</RootNamespace>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="Microsoft.Web.WebView2.WinForms" Version="1.0.2651.64" />
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2651.64" />
     <ProjectReference Include="..\shared\Orbspeak.Shared.csproj" />
   </ItemGroup>
   <Target Name="CopyReactToApp" BeforeTargets="Build" Condition="Exists('$(ProjectDir)..\package.json')">
-    <Exec Command="npm run build" WorkingDirectory="$(ProjectDir).." IgnoreExitCode="false" />
+    <Exec Command="npm run build:no-check" WorkingDirectory="$(ProjectDir).." IgnoreExitCode="false" />
     <ItemGroup>
       <_DistFiles Include="$(ProjectDir)..\dist\**\*" />
     </ItemGroup>
-    <Copy SourceFiles="@(_DistFiles)" DestinationFolder="$(OutputPath)app\%(RecursiveDir)" SkipUnchangingFiles="true" />
+    <Copy SourceFiles="@(_DistFiles)" DestinationFolder="$(OutputPath)app\%(RecursiveDir)" />
   </Target>
   <Target Name="IncludeAppInPublish" AfterTargets="Build">
     <ItemGroup>

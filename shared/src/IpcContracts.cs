@@ -45,6 +45,13 @@ public static class IpcMethods
     public const string LearningDeleteRule = "learning.deleteRule";
     public const string SettingsGet = "settings.get";
     public const string SettingsSet = "settings.set";
+    public const string StudioImport = "studio.import";
+    public const string StudioList = "studio.list";
+    public const string StudioGet = "studio.get";
+    public const string StudioExportAudio = "studio.exportAudio";
+    public const string StudioSaveStyle = "studio.saveStyle";
+    public const string StudioGetStyle = "studio.getStyle";
+    public const string ArtworkGenerate = "artwork.generate";
 }
 
 public static class IpcEvents
@@ -54,6 +61,7 @@ public static class IpcEvents
     public const string DictationFinal = "dictation.final";
     public const string DictationError = "dictation.error";
     public const string TtsState = "tts.state";
+    public const string TtsProgress = "tts.progress";
     public const string ResourceUsage = "resource.usage";
     public const string HotkeyFired = "hotkey.fired";
 }
@@ -160,6 +168,24 @@ public sealed class TtsSpeakParams
 
     [JsonPropertyName("rate")]
     public double? Rate { get; init; }
+
+    [JsonPropertyName("instruct")]
+    public string? Instruct { get; init; }
+}
+
+public sealed class TtsProgressPayload
+{
+    [JsonPropertyName("index")]
+    public int Index { get; init; }
+
+    [JsonPropertyName("text")]
+    public string Text { get; init; } = string.Empty;
+
+    [JsonPropertyName("startMs")]
+    public int StartMs { get; init; }
+
+    [JsonPropertyName("endMs")]
+    public int EndMs { get; init; }
 }
 
 public sealed class EngineStateEventPayload

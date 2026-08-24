@@ -2,7 +2,9 @@ using System.IO.Pipes;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Channels;
+using Orbspeak.Engine.Artwork;
 using Orbspeak.Engine.Asr;
+using Orbspeak.Engine.Studio;
 using Orbspeak.Engine.Tts;
 using Orbspeak.Shared;
 
@@ -68,7 +70,9 @@ internal sealed class EngineHost
     private readonly WhisperAsrPipeline _asrPipeline;
     private readonly OpenAiAsrPipeline _openAiAsr;
     private readonly TtsService _tts;
+    private readonly GrokImageClient _artwork;
     private readonly EngineStatusSnapshot _status = new();
+    private CancellationTokenSource? _ttsCts;
     private readonly object _dictationLock = new();
 
     private CancellationTokenSource? _currentDictationCts;
@@ -89,6 +93,7 @@ internal sealed class EngineHost
             logger);
         _openAiAsr = new OpenAiAsrPipeline(config, logger);
         _tts = new TtsService(config, logger);
+        _artwork = new GrokImageClient();
         _serializerOptions = new JsonSerializerOptions
         {
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
@@ -103,7 +108,9 @@ internal sealed class EngineHost
 
         while (!cancellationToken.IsCancellationRequested)
         {
-            using var server = new NamedPipeServerStream(
+            // Ownership of the stream transfers to HandleClientAsync, which disposes it.
+            // Disposing here (e.g. via `using`) would kill the pipe while the client session is live.
+            var server = new NamedPipeServerStream(
                 _pipeName,
                 PipeDirection.InOut,
                 NamedPipeServerStream.MaxAllowedServerInstances,
@@ -112,10 +119,31 @@ internal sealed class EngineHost
 
             _logger.Info("ipc.server", "Waiting for client connection");
 
-            await server.WaitForConnectionAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                await server.WaitForConnectionAsync(cancellationToken).ConfigureAwait(false);
+            }
+            catch
+            {
+                await server.DisposeAsync().ConfigureAwait(false);
+                throw;
+            }
+
             _logger.Info("ipc.server", "Client connected");
 
-            _ = HandleClientAsync(server, cancellationToken);
+            _ = HandleClientSafeAsync(server, cancellationToken);
+        }
+    }
+
+    private async Task HandleClientSafeAsync(NamedPipeServerStream server, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await HandleClientAsync(server, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger.Error("ipc.server", "Client session ended with error", ex);
         }
     }
 
@@ -234,6 +262,31 @@ internal sealed class EngineHost
                 case IpcMethods.TtsSpeak:
                     HandleTtsSpeak(request, enqueue);
                     break;
+                case IpcMethods.StudioImport:
+                case IpcMethods.StudioList:
+                case IpcMethods.StudioGet:
+                case IpcMethods.StudioExportAudio:
+                case IpcMethods.StudioSaveStyle:
+                case IpcMethods.StudioGetStyle:
+                case IpcMethods.ArtworkGenerate:
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            enqueue(await HandleStudioAsync(request).ConfigureAwait(false));
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.Error("studio", "Studio request failed", ex, request.Id);
+                            enqueue(new ResponseMessage
+                            {
+                                Id = request.Id,
+                                Ok = false,
+                                Error = new IpcError { Code = "studio.error", Message = ex.Message }
+                            });
+                        }
+                    });
+                    break;
                 case IpcMethods.TtsPause:
                     _tts.Pause();
                     enqueue(new ResponseMessage { Id = request.Id, Ok = true, Result = new { paused = true } });
@@ -245,6 +298,7 @@ internal sealed class EngineHost
                     enqueue(new EventMessage { Event = IpcEvents.TtsState, Payload = new { state = "speaking" } });
                     break;
                 case IpcMethods.TtsStop:
+                    _ttsCts?.Cancel();
                     _tts.Stop();
                     if (_status.State == "speaking")
                     {
@@ -330,7 +384,8 @@ internal sealed class EngineHost
                     {
                         asr = _config.UsesOpenAiAsr ? "openai" : "local",
                         tts = _config.TtsProvider,
-                        openaiKeyConfigured = SecretStore.GetOpenAiApiKey() is not null
+                        openaiKeyConfigured = SecretStore.GetOpenAiApiKey() is not null,
+                        xaiKeyConfigured = SecretStore.GetXaiApiKey() is not null
                     }
                 }
             };
@@ -371,6 +426,21 @@ internal sealed class EngineHost
                 SecretStore.SetOpenAiApiKey(apiKey.GetString());
             }
 
+            if (values.TryGetProperty("xaiApiKey", out var xaiKey) && xaiKey.ValueKind == JsonValueKind.String)
+            {
+                SecretStore.SetXaiApiKey(xaiKey.GetString());
+            }
+
+            if (values.TryGetProperty("qwenSpeaker", out var speaker) && speaker.ValueKind == JsonValueKind.String)
+            {
+                _config.QwenSpeaker = speaker.GetString() ?? _config.QwenSpeaker;
+            }
+
+            if (values.TryGetProperty("qwenInstruct", out var instruct) && instruct.ValueKind == JsonValueKind.String)
+            {
+                _config.QwenInstruct = instruct.GetString();
+            }
+
             _config.Save();
         }
 
@@ -397,12 +467,26 @@ internal sealed class EngineHost
         }
 
         var voiceId = ReadStringParam(request.Params, "voiceId");
+        var instruct = ReadStringParam(request.Params, "instruct");
+        var rate = ReadDoubleParam(request.Params, "rate");
         enqueue(new ResponseMessage { Id = request.Id, Ok = true, Result = new { started = true } });
+        _status.State = "speaking";
+        _ttsCts?.Cancel();
+        _ttsCts = new CancellationTokenSource();
+        var token = _ttsCts.Token;
         _ = Task.Run(async () =>
         {
             try
             {
-                await _tts.SpeakAsync(text, voiceId, rate: null, enqueue, CancellationToken.None).ConfigureAwait(false);
+                await _tts.SpeakAsync(text, voiceId, rate, instruct, enqueue, token).ConfigureAwait(false);
+                if (_status.State == "speaking")
+                {
+                    _status.State = "idle";
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                // Stopped by the user.
             }
             catch (Exception ex)
             {
@@ -421,6 +505,142 @@ internal sealed class EngineHost
         }, CancellationToken.None);
     }
 
+    private async Task<ResponseMessage> HandleStudioAsync(RequestMessage request)
+    {
+        var profileId = ReadStringParam(request.Params, "profileId") ?? "default";
+        switch (request.Method)
+        {
+            case IpcMethods.StudioImport:
+            {
+                var fileName = ReadStringParam(request.Params, "fileName") ?? "document.txt";
+                var b64 = ReadStringParam(request.Params, "contentBase64");
+                if (string.IsNullOrWhiteSpace(b64))
+                {
+                    return Fail(request.Id, "studio.missing_file", "contentBase64 is required.");
+                }
+
+                var bytes = Convert.FromBase64String(b64);
+                var mime = ReadStringParam(request.Params, "mimeType");
+                var doc = StudioLibrary.Import(profileId, fileName, bytes, mime);
+                return new ResponseMessage { Id = request.Id, Ok = true, Result = doc };
+            }
+            case IpcMethods.StudioList:
+                return new ResponseMessage { Id = request.Id, Ok = true, Result = new { documents = StudioLibrary.List(profileId) } };
+            case IpcMethods.StudioGet:
+            {
+                var docId = ReadStringParam(request.Params, "docId");
+                if (string.IsNullOrWhiteSpace(docId))
+                {
+                    return Fail(request.Id, "studio.missing_doc", "docId is required.");
+                }
+
+                var doc = StudioLibrary.Get(profileId, docId);
+                if (doc is null)
+                {
+                    return Fail(request.Id, "studio.not_found", "Document was not found.");
+                }
+
+                return new ResponseMessage { Id = request.Id, Ok = true, Result = doc };
+            }
+            case IpcMethods.StudioExportAudio:
+            {
+                var docId = ReadStringParam(request.Params, "docId");
+                if (string.IsNullOrWhiteSpace(docId))
+                {
+                    return Fail(request.Id, "studio.missing_doc", "docId is required.");
+                }
+
+                var payload = StudioLibrary.Get(profileId, docId);
+                if (payload is null)
+                {
+                    return Fail(request.Id, "studio.not_found", "Document was not found.");
+                }
+
+                var style = StudioLibrary.LoadStyle(profileId);
+                var raw = ReadStringParamFromObject(payload, "text") ?? "";
+                var text = StudioLibrary.ApplyPronunciation(raw, style.PronunciationCsv);
+                var voiceId = ReadStringParam(request.Params, "voiceId") ?? style.TtsVoice;
+                var instruct = ReadStringParam(request.Params, "instruct") ?? style.Instruct;
+                var wav = await _tts.ExportAsync(text, voiceId, instruct, CancellationToken.None).ConfigureAwait(false);
+                var path = StudioLibrary.SaveVoiceover(profileId, docId, wav);
+                return new ResponseMessage
+                {
+                    Id = request.Id,
+                    Ok = true,
+                    Result = new { path, bytes = wav.Length, dataUrl = "data:audio/wav;base64," + Convert.ToBase64String(wav) }
+                };
+            }
+            case IpcMethods.StudioSaveStyle:
+            {
+                var current = StudioLibrary.LoadStyle(profileId);
+                current.StyleMarkdown = ReadStringParam(request.Params, "styleMarkdown") ?? current.StyleMarkdown;
+                current.PronunciationCsv = ReadStringParam(request.Params, "pronunciationCsv") ?? current.PronunciationCsv;
+                current.Instruct = ReadStringParam(request.Params, "instruct") ?? current.Instruct;
+                current.TtsVoice = ReadStringParam(request.Params, "ttsVoice") ?? current.TtsVoice;
+                current.TtsProvider = ReadStringParam(request.Params, "ttsProvider") ?? current.TtsProvider;
+                current.ArtworkStyle = ReadStringParam(request.Params, "artworkStyle") ?? current.ArtworkStyle;
+                var rate = ReadDoubleParam(request.Params, "ttsRate");
+                if (rate is not null)
+                {
+                    current.TtsRate = rate.Value;
+                }
+
+                var saved = StudioLibrary.SaveStyle(profileId, current);
+                _config.QwenSpeaker = saved.TtsVoice;
+                _config.QwenInstruct = saved.Instruct;
+                _config.TtsProvider = saved.TtsProvider;
+                _config.Save();
+                return new ResponseMessage { Id = request.Id, Ok = true, Result = saved };
+            }
+            case IpcMethods.StudioGetStyle:
+                return new ResponseMessage { Id = request.Id, Ok = true, Result = StudioLibrary.LoadStyle(profileId) };
+            case IpcMethods.ArtworkGenerate:
+            {
+                var docId = ReadStringParam(request.Params, "docId");
+                var prompt = ReadStringParam(request.Params, "prompt");
+                if (string.IsNullOrWhiteSpace(docId) || string.IsNullOrWhiteSpace(prompt))
+                {
+                    return Fail(request.Id, "artwork.missing", "docId and prompt are required.");
+                }
+
+                var kind = ReadStringParam(request.Params, "kind") ?? "cover";
+                var style = StudioLibrary.LoadStyle(profileId);
+                var png = await _artwork.GenerateAsync(prompt, style.ArtworkStyle, CancellationToken.None).ConfigureAwait(false);
+                var path = StudioLibrary.SaveArtwork(profileId, docId, kind, png);
+                return new ResponseMessage
+                {
+                    Id = request.Id,
+                    Ok = true,
+                    Result = new
+                    {
+                        path,
+                        kind,
+                        dataUrl = "data:image/png;base64," + Convert.ToBase64String(png)
+                    }
+                };
+            }
+            default:
+                return Fail(request.Id, "method.not_implemented", $"Method '{request.Method}' is not implemented.");
+        }
+    }
+
+    private static ResponseMessage Fail(string id, string code, string message) =>
+        new()
+        {
+            Id = id,
+            Ok = false,
+            Error = new IpcError { Code = code, Message = message }
+        };
+
+    private static string? ReadStringParamFromObject(object payload, string name)
+    {
+        var json = JsonSerializer.Serialize(payload);
+        using var doc = JsonDocument.Parse(json);
+        return doc.RootElement.TryGetProperty(name, out var prop) && prop.ValueKind == JsonValueKind.String
+            ? prop.GetString()
+            : null;
+    }
+
     private static string? ReadStringParam(object? raw, string name)
     {
         if (raw is JsonElement el &&
@@ -429,6 +649,26 @@ internal sealed class EngineHost
             prop.ValueKind == JsonValueKind.String)
         {
             return prop.GetString();
+        }
+
+        return null;
+    }
+
+    private static double? ReadDoubleParam(object? raw, string name)
+    {
+        if (raw is JsonElement el &&
+            el.ValueKind == JsonValueKind.Object &&
+            el.TryGetProperty(name, out var prop))
+        {
+            if (prop.ValueKind == JsonValueKind.Number && prop.TryGetDouble(out var n))
+            {
+                return n;
+            }
+
+            if (prop.ValueKind == JsonValueKind.String && double.TryParse(prop.GetString(), out var parsed))
+            {
+                return parsed;
+            }
         }
 
         return null;

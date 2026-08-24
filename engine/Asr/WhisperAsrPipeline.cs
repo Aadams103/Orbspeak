@@ -9,7 +9,7 @@ namespace Orbspeak.Engine.Asr;
 /// <summary>
 /// Wraps Whisper.net: loads model from path, processes 16 kHz mono PCM chunks, enqueues dictation.final for each segment.
 /// </summary>
-public sealed class WhisperAsrPipeline
+internal sealed class WhisperAsrPipeline
 {
     private readonly string _modelPath;
     private readonly JsonFileLogger _logger;

@@ -39,6 +39,11 @@ export interface ProfileMetadata {
     autoClean?: boolean;
     enableShortcuts?: boolean;
     selectedLanguage?: string;
+    ttsVoice?: string;
+    ttsRate?: number;
+    ttsProvider?: string;
+    artworkStyle?: string;
+    qwenInstruct?: string;
   };
 }
 

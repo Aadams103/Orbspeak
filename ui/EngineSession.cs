@@ -9,7 +9,6 @@ namespace Orbspeak.Ui;
 
 /// <summary>
 /// Long-lived connection to the Orbspeak Engine over a named pipe. Spawns the Engine if not running.
-/// Dispatches responses to pending requests and raises events for dictation.partial, dictation.final, engine.state, dictation.error.
 /// </summary>
 public sealed class EngineSession
 {
@@ -33,22 +32,35 @@ public sealed class EngineSession
     public event Action<JsonElement>? Final;
     public event Action<JsonElement>? State;
     public event Action<JsonElement>? Error;
+    public event Action<JsonElement>? TtsState;
+    public event Action<JsonElement>? TtsProgress;
 
-    /// <summary>
-    /// Connect to the Engine. If the pipe is not available, spawns Orbspeak.Engine.exe and retries.
-    /// </summary>
+    private static string ResolveEnginePath()
+    {
+        // Packaged layout keeps the engine (with its own runtime) in engine\ so the
+        // two self-contained publishes never overwrite each other's assemblies.
+        var baseDir = AppContext.BaseDirectory;
+        var nested = Path.Combine(baseDir, "engine", EngineExeName);
+        return File.Exists(nested) ? nested : Path.Combine(baseDir, EngineExeName);
+    }
+
     public async Task ConnectAsync(CancellationToken cancellationToken = default)
     {
-        var enginePath = Path.Combine(AppContext.BaseDirectory, EngineExeName);
+        var enginePath = ResolveEnginePath();
+        var spawnedEngine = false;
+        var deadline = DateTime.UtcNow.AddSeconds(20);
 
-        for (var attempt = 0; attempt < 2; attempt++)
+        while (true)
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var client = new NamedPipeClientStream(".", PipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
             try
             {
-                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
-                using var linked = CancellationTokenSource.CreateLinkedTokenSource(cts.Token, cancellationToken);
-                var client = new NamedPipeClientStream(".", PipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
-                await client.ConnectAsync(linked.Token).ConfigureAwait(false);
+                // ConnectAsync surfaces a timeout as OperationCanceledException, not TimeoutException.
+                using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                timeout.CancelAfter(TimeSpan.FromSeconds(2));
+                await client.ConnectAsync(timeout.Token).ConfigureAwait(false);
 
                 _stream = client;
                 _reader = new StreamReader(_stream, Encoding.UTF8, detectEncodingFromByteOrderMarks: false, bufferSize: 4096, leaveOpen: true);
@@ -58,27 +70,42 @@ public sealed class EngineSession
                 _readTask = Task.Run(() => ReadLoop(_readCts.Token), _readCts.Token);
                 return;
             }
-            catch (TimeoutException) when (attempt == 0 && File.Exists(enginePath))
+            catch (Exception ex) when (ex is OperationCanceledException or TimeoutException or IOException)
             {
-                try
+                client.Dispose();
+                cancellationToken.ThrowIfCancellationRequested();
+
+                if (!spawnedEngine)
                 {
-                    var start = new ProcessStartInfo
+                    spawnedEngine = true;
+                    if (!File.Exists(enginePath))
                     {
-                        FileName = enginePath,
-                        UseShellExecute = false,
-                        WorkingDirectory = Path.GetDirectoryName(enginePath) ?? "."
-                    };
-                    Process.Start(start);
+                        throw new InvalidOperationException($"Orbspeak Engine not found at {enginePath}.");
+                    }
+
+                    try
+                    {
+                        Process.Start(new ProcessStartInfo
+                        {
+                            FileName = enginePath,
+                            UseShellExecute = false,
+                            CreateNoWindow = true,
+                            WorkingDirectory = Path.GetDirectoryName(enginePath) ?? "."
+                        });
+                    }
+                    catch (Exception spawnEx)
+                    {
+                        throw new InvalidOperationException($"Could not start Orbspeak Engine: {spawnEx.Message}", spawnEx);
+                    }
                 }
-                catch
+                else if (DateTime.UtcNow >= deadline)
                 {
-                    throw new InvalidOperationException("Could not start Orbspeak Engine.");
+                    throw new InvalidOperationException("Could not connect to Orbspeak Engine within 20 seconds.");
                 }
-                await Task.Delay(2500, cancellationToken).ConfigureAwait(false);
+
+                await Task.Delay(400, cancellationToken).ConfigureAwait(false);
             }
         }
-
-        throw new InvalidOperationException("Could not connect to Orbspeak Engine.");
     }
 
     public async Task<ResponseMessage> SendRequestAsync(string method, object? parameters, CancellationToken cancellationToken = default)
@@ -157,6 +184,12 @@ public sealed class EngineSession
                                 break;
                             case IpcEvents.DictationError:
                                 Error?.Invoke(payload);
+                                break;
+                            case IpcEvents.TtsState:
+                                TtsState?.Invoke(payload);
+                                break;
+                            case IpcEvents.TtsProgress:
+                                TtsProgress?.Invoke(payload);
                                 break;
                         }
                     }

@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 
@@ -65,6 +65,7 @@ import {
   Zap,
   Sparkles,
   PenLine,
+  Clapperboard,
   Save,
   RotateCcw,
   Edit3,
@@ -1457,6 +1458,12 @@ function ExpandedFullView({
           >
             <Settings className="h-4 w-4" />
             Settings
+          </Button>
+          <Button variant="ghost" className="justify-start gap-2" asChild>
+            <Link to="/studio">
+              <Clapperboard className="h-4 w-4" />
+              Open Studio
+            </Link>
           </Button>
 
           {/* Quick controls at bottom of sidebar */}

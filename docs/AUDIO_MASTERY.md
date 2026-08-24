@@ -90,6 +90,16 @@ Switch from the UI/IPC:
 
 If the sidecar is down and an OpenAI key is present, TTS falls back to OpenAI.
 
+## Studio (Speechify reader + artwork)
+
+In the desktop app, use the **Dictate / Studio** switcher.
+
+- Library files: `%LOCALAPPDATA%\Orbspeak\library\{profileId}\{docId}\`
+- Profile voice/style: `%LOCALAPPDATA%\Orbspeak\library\{profileId}\profile\`
+- Upload `.txt`, `.md`, or `.pdf`. Read-aloud highlights one sentence at a time via `tts.progress`.
+- Artwork calls xAI `grok-imagine-image-2.0`. Set `XAI_API_KEY` or add `xaiApiKey` to `secrets.json`. Never commit that key.
+- Voiceover writes `voiceover.wav` next to the document.
+
 ## Speak / transcribe from the frozen v1 IPC
 
 ```json

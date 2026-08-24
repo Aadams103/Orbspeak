@@ -46,7 +46,8 @@
       "properties": {
         "text": { "type": "string" },
         "voiceId": { "type": "string" },
-        "rate": { "type": "number" }
+        "rate": { "type": "number" },
+        "instruct": { "type": "string" }
       },
       "required": ["text"],
       "additionalProperties": true
@@ -141,6 +142,80 @@
       },
       "required": ["values"],
       "additionalProperties": false
+    },
+    "studio.import": {
+      "type": "object",
+      "properties": {
+        "profileId": { "type": "string" },
+        "fileName": { "type": "string" },
+        "contentBase64": { "type": "string" },
+        "mimeType": { "type": "string" }
+      },
+      "required": ["profileId", "fileName", "contentBase64"],
+      "additionalProperties": true
+    },
+    "studio.list": {
+      "type": "object",
+      "properties": {
+        "profileId": { "type": "string" }
+      },
+      "required": ["profileId"],
+      "additionalProperties": false
+    },
+    "studio.get": {
+      "type": "object",
+      "properties": {
+        "profileId": { "type": "string" },
+        "docId": { "type": "string" }
+      },
+      "required": ["profileId", "docId"],
+      "additionalProperties": false
+    },
+    "studio.exportAudio": {
+      "type": "object",
+      "properties": {
+        "profileId": { "type": "string" },
+        "docId": { "type": "string" },
+        "voiceId": { "type": "string" },
+        "rate": { "type": "number" },
+        "instruct": { "type": "string" }
+      },
+      "required": ["profileId", "docId"],
+      "additionalProperties": true
+    },
+    "studio.saveStyle": {
+      "type": "object",
+      "properties": {
+        "profileId": { "type": "string" },
+        "styleMarkdown": { "type": "string" },
+        "pronunciationCsv": { "type": "string" },
+        "instruct": { "type": "string" },
+        "ttsVoice": { "type": "string" },
+        "ttsRate": { "type": "number" },
+        "ttsProvider": { "type": "string" },
+        "artworkStyle": { "type": "string" }
+      },
+      "required": ["profileId"],
+      "additionalProperties": true
+    },
+    "studio.getStyle": {
+      "type": "object",
+      "properties": {
+        "profileId": { "type": "string" }
+      },
+      "required": ["profileId"],
+      "additionalProperties": false
+    },
+    "artwork.generate": {
+      "type": "object",
+      "properties": {
+        "profileId": { "type": "string" },
+        "docId": { "type": "string" },
+        "prompt": { "type": "string" },
+        "kind": { "type": "string" }
+      },
+      "required": ["profileId", "docId", "prompt"],
+      "additionalProperties": true
     }
   },
   "additionalProperties": false

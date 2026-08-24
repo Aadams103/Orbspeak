@@ -61,6 +61,8 @@ public sealed class EngineConfig
 
     public string QwenLanguage { get; set; } = "English";
 
+    public string? QwenInstruct { get; set; }
+
     [JsonIgnore]
     public bool UsesOpenAiAsr =>
         string.Equals(AsrProvider, "openai", StringComparison.OrdinalIgnoreCase) ||

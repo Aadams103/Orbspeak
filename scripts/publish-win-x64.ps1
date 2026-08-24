@@ -32,11 +32,18 @@ if (-not (Test-Path $uiPub)) {
     Write-Error "UI publish folder not found: $uiPub"
 }
 
-# 4) Copy Engine exe and its dependencies into the UI publish folder
-Write-Host "Copying Engine into Desktop publish..."
-Copy-Item -Path "$engPub\*" -Destination $uiPub -Recurse -Force
+# 4) Copy Engine into an engine\ subfolder of the UI publish. Never merge the two
+#    publishes into one folder: their runtimes ship different assembly versions
+#    (e.g. System.Text.Json) and overwriting breaks the Desktop host at runtime.
+Write-Host "Copying Engine into Desktop publish (engine\ subfolder)..."
+$engineDest = Join-Path $uiPub "engine"
+if (Test-Path $engineDest) {
+    Remove-Item -Path $engineDest -Recurse -Force
+}
+New-Item -ItemType Directory -Path $engineDest | Out-Null
+Copy-Item -Path "$engPub\*" -Destination $engineDest -Recurse -Force
 
 Write-Host "Done. Output: $uiPub"
 Write-Host "  - Orbspeak.exe (Desktop host)"
-Write-Host "  - Orbspeak.Engine.exe"
+Write-Host "  - engine\Orbspeak.Engine.exe"
 Write-Host "  - app\ (React build)"

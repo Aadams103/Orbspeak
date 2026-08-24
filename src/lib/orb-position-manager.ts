@@ -48,10 +48,13 @@ export class OrbPositionManager {
    * Get current screen information
    */
   public static getScreenInfo(): ScreenInfo {
-    // Get primary screen
-    const primaryScreen = {
-      x: window.screenX,
-      y: window.screenY,
+    // The orb uses position:fixed, so it lives in viewport coordinates.
+    // Bounds must be the viewport, not the monitor: in the desktop shell the
+    // window is smaller than the screen, and monitor-based bounds push the
+    // orb outside the visible window.
+    const monitor = {
+      x: 0,
+      y: 0,
       width: window.screen.width,
       height: window.screen.height,
     };
@@ -59,17 +62,16 @@ export class OrbPositionManager {
     // Calculate DPI scale (devicePixelRatio)
     const dpiScale = window.devicePixelRatio || 1;
 
-    // Generate screen ID based on position and size
-    // This helps identify which monitor we're on
-    const screenId = this.generateScreenId(primaryScreen, dpiScale);
+    // The ID still comes from the monitor so multi-monitor moves reset the orb
+    const screenId = this.generateScreenId(monitor, dpiScale);
 
     return {
       id: screenId,
       bounds: {
-        x: primaryScreen.x,
-        y: primaryScreen.y,
-        width: primaryScreen.width,
-        height: primaryScreen.height,
+        x: 0,
+        y: 0,
+        width: window.innerWidth,
+        height: window.innerHeight,
       },
       dpiScale,
       isPrimary: window.screenX === 0 && window.screenY === 0,
