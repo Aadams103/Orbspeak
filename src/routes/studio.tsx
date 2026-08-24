@@ -4,6 +4,7 @@ import { LibraryView } from "@/features/studio/LibraryView";
 import { StudioProfilePanel } from "@/features/studio/StudioProfilePanel";
 import { StudioShell } from "@/features/studio/StudioShell";
 import { importDocument, listDocuments, loadStyle, saveStyle } from "@/features/studio/studioClient";
+import { engineErrorMessage } from "@/lib/engine-ipc";
 import { DEFAULT_STUDIO_STYLE, type StudioDocumentMeta, type StudioStyle } from "@/features/studio/studioTypes";
 
 export const Route = createFileRoute("/studio")({
@@ -22,7 +23,7 @@ function StudioLibraryPage() {
   }, []);
 
   useEffect(() => {
-    refresh().catch((err) => setError(err instanceof Error ? err.message : String(err)));
+    refresh().catch((err) => setError(engineErrorMessage(err)));
   }, [refresh]);
 
   return (
@@ -39,7 +40,7 @@ function StudioLibraryPage() {
               await importDocument(file);
               await refresh();
             } catch (err) {
-              setError(err instanceof Error ? err.message : String(err));
+              setError(engineErrorMessage(err));
             } finally {
               setBusy(false);
             }
@@ -51,8 +52,11 @@ function StudioLibraryPage() {
           busy={busy}
           onSave={async () => {
             setBusy(true);
+            setError(null);
             try {
               setStyle(await saveStyle(style));
+            } catch (err) {
+              setError(engineErrorMessage(err));
             } finally {
               setBusy(false);
             }

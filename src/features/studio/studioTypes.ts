@@ -1,3 +1,5 @@
+import { type TtsProviderId } from "./ttsContracts";
+
 export type StudioDocumentMeta = {
   id: string;
   title: string;
@@ -23,7 +25,7 @@ export type StudioStyle = {
   instruct: string;
   ttsVoice: string;
   ttsRate: number;
-  ttsProvider: string;
+  ttsProvider: TtsProviderId | string;
   artworkStyle: string;
 };
 

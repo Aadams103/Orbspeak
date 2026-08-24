@@ -36,6 +36,7 @@ public static class IpcMethods
     public const string TtsPause = "tts.pause";
     public const string TtsResume = "tts.resume";
     public const string TtsStop = "tts.stop";
+    public const string TtsVoices = "tts.voices";
     public const string ProfilesList = "profiles.list";
     public const string ProfilesSetActive = "profiles.setActive";
     public const string ProfilesExport = "profiles.export";
@@ -163,6 +164,9 @@ public sealed class TtsSpeakParams
     [JsonPropertyName("text")]
     public string Text { get; init; } = string.Empty;
 
+    [JsonPropertyName("provider")]
+    public string? Provider { get; init; }
+
     [JsonPropertyName("voiceId")]
     public string? VoiceId { get; init; }
 
@@ -171,6 +175,12 @@ public sealed class TtsSpeakParams
 
     [JsonPropertyName("instruct")]
     public string? Instruct { get; init; }
+
+    [JsonPropertyName("styleMarkdown")]
+    public string? StyleMarkdown { get; init; }
+
+    [JsonPropertyName("pronunciationCsv")]
+    public string? PronunciationCsv { get; init; }
 }
 
 public sealed class TtsProgressPayload
@@ -186,6 +196,9 @@ public sealed class TtsProgressPayload
 
     [JsonPropertyName("endMs")]
     public int EndMs { get; init; }
+
+    [JsonPropertyName("sessionId")]
+    public string? SessionId { get; init; }
 }
 
 public sealed class EngineStateEventPayload
