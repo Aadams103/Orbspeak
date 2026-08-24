@@ -7,6 +7,13 @@ import {
   type StudioDocumentMeta,
   type StudioStyle,
 } from "./studioTypes";
+import {
+  OPENAI_VOICES,
+  QWEN_VOICES,
+  type StudioSpeechSettings,
+  type TtsProviderId,
+  type TtsVoiceInfo,
+} from "./ttsContracts";
 
 const MEMORY_KEY = "orbspeak.studio.library";
 const STYLE_KEY = "orbspeak.studio.style";
@@ -52,6 +59,16 @@ export async function listDocuments(profileId = DEFAULT_STUDIO_PROFILE): Promise
   );
 }
 
+export function openDocumentPicker(): Promise<File | null> {
+  return new Promise((resolve) => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = ".txt,.md,.pdf,text/plain,text/markdown,application/pdf";
+    input.onchange = () => resolve(input.files?.[0] ?? null);
+    input.click();
+  });
+}
+
 export async function getDocument(
   docId: string,
   profileId = DEFAULT_STUDIO_PROFILE,
@@ -93,11 +110,44 @@ export async function importDocument(file: File, profileId = DEFAULT_STUDIO_PROF
   return doc;
 }
 
+export async function saveDocumentText(
+  docId: string,
+  text: string,
+  profileId = DEFAULT_STUDIO_PROFILE,
+): Promise<StudioDocument> {
+  const ipc = getEngineIpc();
+  if (ipc?.studioSaveText) {
+    return (await ipc.studioSaveText({ profileId, docId, text })) as StudioDocument;
+  }
+
+  const store = readMemory();
+  const existing = store.documents[docId];
+  if (!existing) {
+    throw new Error("Document was not found.");
+  }
+  const next: StudioDocument = {
+    ...existing,
+    text,
+    sentences: splitSentences(text),
+    updatedAt: new Date().toISOString(),
+  };
+  store.documents[docId] = next;
+  writeMemory(store);
+  return next;
+}
+
 export async function exportVoiceover(
   docId: string,
-  extras: { voiceId?: string; instruct?: string } = {},
+  extras: {
+    provider?: string;
+    voiceId?: string;
+    rate?: number;
+    instruct?: string;
+    styleMarkdown?: string;
+    pronunciationCsv?: string;
+  } = {},
   profileId = DEFAULT_STUDIO_PROFILE,
-): Promise<{ dataUrl?: string; path?: string }> {
+): Promise<{ dataUrl?: string; path?: string; overwritten?: boolean; settings?: StudioSpeechSettings }> {
   const ipc = getEngineIpc();
   if (!ipc?.studioExportAudio) {
     throw new Error("Voiceover export needs the Orbspeak desktop engine.");
@@ -105,7 +155,21 @@ export async function exportVoiceover(
   return (await ipc.studioExportAudio({ profileId, docId, ...extras })) as {
     dataUrl?: string;
     path?: string;
+    overwritten?: boolean;
+    settings?: StudioSpeechSettings;
   };
+}
+
+export async function listTtsVoices(): Promise<Record<TtsProviderId, TtsVoiceInfo[]>> {
+  const ipc = getEngineIpc();
+  if (ipc?.ttsVoices) {
+    const result = asRecord(await ipc.ttsVoices());
+    return {
+      qwen3: (result.qwen3 as TtsVoiceInfo[] | undefined) ?? QWEN_VOICES,
+      openai: (result.openai as TtsVoiceInfo[] | undefined) ?? OPENAI_VOICES,
+    };
+  }
+  return { qwen3: QWEN_VOICES, openai: OPENAI_VOICES };
 }
 
 export async function generateArtwork(

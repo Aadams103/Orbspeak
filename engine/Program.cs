@@ -259,12 +259,30 @@ internal sealed class EngineHost
                 case IpcMethods.SettingsSet:
                     enqueue(HandleSettingsSet(request));
                     break;
+                case IpcMethods.SettingsOpenDataFolder:
+                    enqueue(HandleOpenDataFolder(request));
+                    break;
                 case IpcMethods.TtsSpeak:
                     HandleTtsSpeak(request, enqueue);
+                    break;
+                case IpcMethods.TtsVoices:
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            enqueue(await HandleTtsVoicesAsync(request).ConfigureAwait(false));
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.Error("tts.voices", "tts.voices failed", ex, request.Id);
+                            enqueue(Fail(request.Id, "tts.voices_failed", ex.Message));
+                        }
+                    });
                     break;
                 case IpcMethods.StudioImport:
                 case IpcMethods.StudioList:
                 case IpcMethods.StudioGet:
+                case IpcMethods.StudioSaveText:
                 case IpcMethods.StudioExportAudio:
                 case IpcMethods.StudioSaveStyle:
                 case IpcMethods.StudioGetStyle:
@@ -288,15 +306,43 @@ internal sealed class EngineHost
                     });
                     break;
                 case IpcMethods.TtsPause:
-                    _tts.Pause();
-                    enqueue(new ResponseMessage { Id = request.Id, Ok = true, Result = new { paused = true } });
-                    enqueue(new EventMessage { Event = IpcEvents.TtsState, Payload = new { state = "paused" } });
+                {
+                    var paused = _tts.Pause();
+                    enqueue(new ResponseMessage { Id = request.Id, Ok = true, Result = new { paused } });
+                    if (paused)
+                    {
+                        enqueue(new EventMessage
+                        {
+                            Event = IpcEvents.TtsState,
+                            Payload = new
+                            {
+                                state = PlaybackStateIds.Paused,
+                                sessionId = _tts.CurrentSessionId
+                            }
+                        });
+                    }
+
                     break;
+                }
                 case IpcMethods.TtsResume:
-                    _tts.Resume();
-                    enqueue(new ResponseMessage { Id = request.Id, Ok = true, Result = new { resumed = true } });
-                    enqueue(new EventMessage { Event = IpcEvents.TtsState, Payload = new { state = "speaking" } });
+                {
+                    var resumed = _tts.Resume();
+                    enqueue(new ResponseMessage { Id = request.Id, Ok = true, Result = new { resumed } });
+                    if (resumed)
+                    {
+                        enqueue(new EventMessage
+                        {
+                            Event = IpcEvents.TtsState,
+                            Payload = new
+                            {
+                                state = PlaybackStateIds.Playing,
+                                sessionId = _tts.CurrentSessionId
+                            }
+                        });
+                    }
+
                     break;
+                }
                 case IpcMethods.TtsStop:
                     _ttsCts?.Cancel();
                     _tts.Stop();
@@ -377,8 +423,8 @@ internal sealed class EngineHost
                     },
                     tts = new[]
                     {
-                        new { id = "qwen3", label = "Qwen3-TTS sidecar", cost = "free-local-weights" },
-                        new { id = "openai", label = "OpenAI TTS", cost = "paid-api" }
+                        new { id = TtsProviderIds.Qwen3, label = "Qwen3-TTS sidecar", cost = "free-local-weights" },
+                        new { id = TtsProviderIds.OpenAi, label = "OpenAI TTS", cost = "paid-api" }
                     },
                     active = new
                     {
@@ -386,7 +432,9 @@ internal sealed class EngineHost
                         tts = _config.TtsProvider,
                         openaiKeyConfigured = SecretStore.GetOpenAiApiKey() is not null,
                         xaiKeyConfigured = SecretStore.GetXaiApiKey() is not null
-                    }
+                    },
+                    sidecarUrl = _config.QwenSidecarUrl,
+                    qwenModel = _config.QwenModel
                 }
             };
         }
@@ -413,7 +461,14 @@ internal sealed class EngineHost
 
             if (values.TryGetProperty("ttsProvider", out var tts) && tts.ValueKind == JsonValueKind.String)
             {
-                _config.TtsProvider = tts.GetString() ?? _config.TtsProvider;
+                var requested = tts.GetString();
+                if (!TtsProviderIds.TryParse(requested, out var kind))
+                {
+                    return Fail(request.Id, "tts.invalid_provider",
+                        $"Unknown TTS provider '{requested}'. Supported providers: {string.Join(", ", TtsProviderIds.All)}.");
+                }
+
+                _config.TtsProvider = TtsProviderIds.ToId(kind);
             }
 
             if (values.TryGetProperty("openaiAsrModel", out var asrModel) && asrModel.ValueKind == JsonValueKind.String)
@@ -441,6 +496,15 @@ internal sealed class EngineHost
                 _config.QwenInstruct = instruct.GetString();
             }
 
+            if (values.TryGetProperty("qwenSidecarUrl", out var sidecar) && sidecar.ValueKind == JsonValueKind.String)
+            {
+                var url = sidecar.GetString();
+                if (!string.IsNullOrWhiteSpace(url))
+                {
+                    _config.QwenSidecarUrl = url.Trim();
+                }
+            }
+
             _config.Save();
         }
 
@@ -452,24 +516,59 @@ internal sealed class EngineHost
         };
     }
 
+    private static ResponseMessage HandleOpenDataFolder(RequestMessage request)
+    {
+        try
+        {
+            Directory.CreateDirectory(StudioPaths.Root);
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = StudioPaths.Root,
+                UseShellExecute = true
+            });
+            return new ResponseMessage { Id = request.Id, Ok = true, Result = new { opened = true } };
+        }
+        catch (Exception ex)
+        {
+            return Fail(request.Id, "settings.open_folder_failed", ex.Message);
+        }
+    }
+
     private void HandleTtsSpeak(RequestMessage request, Action<IpcEnvelope> enqueue)
     {
-        var text = ReadStringParam(request.Params, "text");
-        if (string.IsNullOrWhiteSpace(text))
+        StudioSpeechRequest speechRequest;
+        ResolvedSpeechJob job;
+        try
+        {
+            speechRequest = ReadSpeechRequest(request.Params, requireText: true);
+            job = _tts.Resolve(speechRequest);
+        }
+        catch (TtsValidationException ex)
         {
             enqueue(new ResponseMessage
             {
                 Id = request.Id,
                 Ok = false,
-                Error = new IpcError { Code = "tts.missing_text", Message = "tts.speak requires text." }
+                Error = new IpcError { Code = ex.Code, Message = ex.Message }
             });
             return;
         }
 
-        var voiceId = ReadStringParam(request.Params, "voiceId");
-        var instruct = ReadStringParam(request.Params, "instruct");
-        var rate = ReadDoubleParam(request.Params, "rate");
-        enqueue(new ResponseMessage { Id = request.Id, Ok = true, Result = new { started = true } });
+        enqueue(new ResponseMessage
+        {
+            Id = request.Id,
+            Ok = true,
+            Result = new
+            {
+                started = true,
+                sessionId = (string?)null,
+                provider = job.ProviderId,
+                voiceId = job.VoiceId,
+                rate = job.Rate,
+                instructionApplied = job.InstructionApplied,
+                instructionUnavailableReason = job.InstructionUnavailableReason
+            }
+        });
         _status.State = "speaking";
         _ttsCts?.Cancel();
         _ttsCts = new CancellationTokenSource();
@@ -478,7 +577,7 @@ internal sealed class EngineHost
         {
             try
             {
-                await _tts.SpeakAsync(text, voiceId, rate, instruct, enqueue, token).ConfigureAwait(false);
+                await _tts.SpeakAsync(speechRequest, enqueue, token).ConfigureAwait(false);
                 if (_status.State == "speaking")
                 {
                     _status.State = "idle";
@@ -491,18 +590,56 @@ internal sealed class EngineHost
             catch (Exception ex)
             {
                 _logger.Error("tts.lifecycle", "tts.speak failed", ex);
-                enqueue(new EventMessage
+                if (_status.State == "speaking")
                 {
-                    Event = IpcEvents.TtsState,
-                    Payload = new { state = "stopped", error = ex.Message }
-                });
-                enqueue(new EventMessage
-                {
-                    Event = IpcEvents.EngineState,
-                    Payload = new EngineStateEventPayload { State = "idle" }
-                });
+                    _status.State = "idle";
+                }
             }
         }, CancellationToken.None);
+    }
+
+    private async Task<ResponseMessage> HandleTtsVoicesAsync(RequestMessage request)
+    {
+        IReadOnlyList<string>? live = null;
+        try
+        {
+            using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(2) };
+            var url = (_config.QwenSidecarUrl ?? "http://127.0.0.1:8765").TrimEnd('/') + "/voices";
+            using var response = await http.GetAsync(url).ConfigureAwait(false);
+            if (response.IsSuccessStatusCode)
+            {
+                await using var stream = await response.Content.ReadAsStreamAsync().ConfigureAwait(false);
+                using var doc = await JsonDocument.ParseAsync(stream).ConfigureAwait(false);
+                if (doc.RootElement.TryGetProperty("speakers", out var speakers) &&
+                    speakers.ValueKind == JsonValueKind.Array)
+                {
+                    live = speakers.EnumerateArray()
+                        .Select(item => item.GetString())
+                        .Where(item => !string.IsNullOrWhiteSpace(item))
+                        .Select(item => item!)
+                        .ToArray();
+                }
+            }
+        }
+        catch
+        {
+            // Sidecar is optional; the static catalog still lets Studio validate voices.
+        }
+
+        return new ResponseMessage
+        {
+            Id = request.Id,
+            Ok = true,
+            Result = new
+            {
+                providers = TtsProviderIds.All,
+                qwen3 = TtsVoiceCatalog.MergeQwenSpeakers(live),
+                openai = TtsVoiceCatalog.OpenAiVoices,
+                active = TtsProviderIds.TryParse(_config.TtsProvider, out var active)
+                    ? TtsProviderIds.ToId(active)
+                    : TtsProviderIds.Qwen3
+            }
+        };
     }
 
     private async Task<ResponseMessage> HandleStudioAsync(RequestMessage request)
@@ -542,6 +679,28 @@ internal sealed class EngineHost
 
                 return new ResponseMessage { Id = request.Id, Ok = true, Result = doc };
             }
+            case IpcMethods.StudioSaveText:
+            {
+                var docId = ReadStringParam(request.Params, "docId");
+                if (string.IsNullOrWhiteSpace(docId))
+                {
+                    return Fail(request.Id, "studio.missing_doc", "docId is required.");
+                }
+
+                var text = ReadStringParam(request.Params, "text");
+                if (text is null)
+                {
+                    return Fail(request.Id, "studio.missing_text", "text is required.");
+                }
+
+                var saved = StudioLibrary.SaveText(profileId, docId, text);
+                if (saved is null)
+                {
+                    return Fail(request.Id, "studio.not_found", "Document was not found.");
+                }
+
+                return new ResponseMessage { Id = request.Id, Ok = true, Result = saved };
+            }
             case IpcMethods.StudioExportAudio:
             {
                 var docId = ReadStringParam(request.Params, "docId");
@@ -558,16 +717,65 @@ internal sealed class EngineHost
 
                 var style = StudioLibrary.LoadStyle(profileId);
                 var raw = ReadStringParamFromObject(payload, "text") ?? "";
-                var text = StudioLibrary.ApplyPronunciation(raw, style.PronunciationCsv);
-                var voiceId = ReadStringParam(request.Params, "voiceId") ?? style.TtsVoice;
-                var instruct = ReadStringParam(request.Params, "instruct") ?? style.Instruct;
-                var wav = await _tts.ExportAsync(text, voiceId, instruct, CancellationToken.None).ConfigureAwait(false);
-                var path = StudioLibrary.SaveVoiceover(profileId, docId, wav);
+                StudioSpeechRequest speechRequest;
+                try
+                {
+                    speechRequest = ReadSpeechRequest(request.Params, requireText: false);
+                    speechRequest = new StudioSpeechRequest
+                    {
+                        Text = raw,
+                        Provider = speechRequest.Provider ?? style.TtsProvider,
+                        VoiceId = speechRequest.VoiceId ?? style.TtsVoice,
+                        Rate = speechRequest.Rate ?? style.TtsRate,
+                        Instruct = speechRequest.Instruct ?? style.Instruct,
+                        StyleMarkdown = speechRequest.StyleMarkdown ?? style.StyleMarkdown,
+                        PronunciationCsv = speechRequest.PronunciationCsv ?? style.PronunciationCsv
+                    };
+                }
+                catch (TtsValidationException ex)
+                {
+                    return Fail(request.Id, ex.Code, ex.Message);
+                }
+
+                var overwritten = StudioLibrary.VoiceoverExists(profileId, docId);
+                StudioExportResult exported;
+                try
+                {
+                    exported = await _tts.ExportAsync(speechRequest, CancellationToken.None).ConfigureAwait(false);
+                }
+                catch (TtsValidationException ex)
+                {
+                    return Fail(request.Id, ex.Code, ex.Message);
+                }
+                var settings = exported.Job.ToSettings();
+                var path = StudioLibrary.SaveVoiceover(profileId, docId, exported.Wav, new
+                {
+                    provider = settings.Provider,
+                    voiceId = settings.VoiceId,
+                    rate = settings.Rate,
+                    instruct = speechRequest.Instruct,
+                    styleMarkdown = speechRequest.StyleMarkdown,
+                    performanceInstruct = settings.PerformanceInstruct,
+                    instructionApplied = settings.InstructionApplied,
+                    instructionUnavailableReason = settings.InstructionUnavailableReason,
+                    applyEngineTempo = settings.ApplyEngineTempo,
+                    sentenceCount = exported.Job.Sentences.Count,
+                    bytes = exported.Wav.Length,
+                    overwritten,
+                    createdAt = DateTime.UtcNow.ToString("o")
+                });
                 return new ResponseMessage
                 {
                     Id = request.Id,
                     Ok = true,
-                    Result = new { path, bytes = wav.Length, dataUrl = "data:audio/wav;base64," + Convert.ToBase64String(wav) }
+                    Result = new
+                    {
+                        path,
+                        bytes = exported.Wav.Length,
+                        dataUrl = "data:audio/wav;base64," + Convert.ToBase64String(exported.Wav),
+                        overwritten,
+                        settings
+                    }
                 };
             }
             case IpcMethods.StudioSaveStyle:
@@ -585,9 +793,27 @@ internal sealed class EngineHost
                     current.TtsRate = rate.Value;
                 }
 
-                var saved = StudioLibrary.SaveStyle(profileId, current);
-                _config.QwenSpeaker = saved.TtsVoice;
-                _config.QwenInstruct = saved.Instruct;
+                StudioProfileStyle saved;
+                try
+                {
+                    saved = StudioLibrary.SaveStyle(profileId, StudioLibrary.NormalizeStyle(current));
+                }
+                catch (TtsValidationException ex)
+                {
+                    return Fail(request.Id, ex.Code, ex.Message);
+                }
+
+                var provider = TtsProviderIds.ParseRequired(saved.TtsProvider);
+                if (provider == TtsProviderKind.Qwen3)
+                {
+                    _config.QwenSpeaker = saved.TtsVoice;
+                    _config.QwenInstruct = saved.Instruct;
+                }
+                else
+                {
+                    _config.OpenAiTtsVoice = saved.TtsVoice;
+                }
+
                 _config.TtsProvider = saved.TtsProvider;
                 _config.Save();
                 return new ResponseMessage { Id = request.Id, Ok = true, Result = saved };
@@ -631,6 +857,26 @@ internal sealed class EngineHost
             Ok = false,
             Error = new IpcError { Code = code, Message = message }
         };
+
+    private StudioSpeechRequest ReadSpeechRequest(object? raw, bool requireText)
+    {
+        var text = ReadStringParam(raw, "text") ?? string.Empty;
+        if (requireText && string.IsNullOrWhiteSpace(text))
+        {
+            throw new TtsValidationException("tts.missing_text", "tts.speak requires text.");
+        }
+
+        return new StudioSpeechRequest
+        {
+            Text = text,
+            Provider = ReadStringParam(raw, "provider"),
+            VoiceId = ReadStringParam(raw, "voiceId"),
+            Rate = ReadDoubleParam(raw, "rate"),
+            Instruct = ReadStringParam(raw, "instruct"),
+            StyleMarkdown = ReadStringParam(raw, "styleMarkdown"),
+            PronunciationCsv = ReadStringParam(raw, "pronunciationCsv")
+        };
+    }
 
     private static string? ReadStringParamFromObject(object payload, string name)
     {

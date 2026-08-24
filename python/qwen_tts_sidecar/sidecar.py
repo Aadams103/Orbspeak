@@ -13,10 +13,15 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
+SIDECAR_DIR = Path(__file__).resolve().parent
 ROOT = Path(__file__).resolve().parents[2]
 VENDOR = ROOT / "third_party" / "qwen3-tts"
+if str(SIDECAR_DIR) not in sys.path:
+    sys.path.insert(0, str(SIDECAR_DIR))
 if VENDOR.exists():
     sys.path.insert(0, str(VENDOR))
+
+from sidecar_support import instruct_supported_for_model, resolve_speak_request
 
 MODEL = None
 MODEL_ID = None
@@ -66,11 +71,14 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt: str, *args: Any) -> None:
         sys.stderr.write("qwen-sidecar: " + (fmt % args) + "\n")
 
-    def _send(self, status: int, body: bytes, content_type: str) -> None:
+    def _send(self, status: int, body: bytes, content_type: str, extra_headers: dict[str, str] | None = None) -> None:
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
+        if extra_headers:
+            for key, value in extra_headers.items():
+                self.send_header(key, value)
         self.end_headers()
         self.wfile.write(body)
 
@@ -84,6 +92,7 @@ class Handler(BaseHTTPRequestHandler):
                     "model": MODEL_ID,
                     "vendor": str(VENDOR),
                     "error": LOAD_ERROR,
+                    "instructSupported": instruct_supported_for_model(MODEL_ID),
                 }
             )
             self._send(status, body, ctype)
@@ -98,7 +107,14 @@ class Handler(BaseHTTPRequestHandler):
                     languages = list(MODEL.model.get_supported_languages() or [])
                 except Exception:
                     speakers, languages = [], []
-            status, body, ctype = json_bytes({"speakers": speakers, "languages": languages})
+            status, body, ctype = json_bytes(
+                {
+                    "speakers": speakers,
+                    "languages": languages,
+                    "instructSupported": instruct_supported_for_model(MODEL_ID),
+                    "model": MODEL_ID,
+                }
+            )
             self._send(status, body, ctype)
             return
 
@@ -118,26 +134,30 @@ class Handler(BaseHTTPRequestHandler):
             self._send(*json_bytes({"error": "invalid_json"}, 400))
             return
 
-        text = (payload.get("text") or "").strip()
-        if not text:
+        request = resolve_speak_request(payload)
+        if not request["text"]:
             self._send(*json_bytes({"error": "text is required"}, 400))
             return
 
-        model_id = payload.get("model") or "Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice"
-        speaker = payload.get("speaker") or "Ryan"
-        language = payload.get("language") or "English"
-        instruct = payload.get("instruct")
-
         try:
-            load_model(model_id)
+            load_model(request["model"])
             wavs, sr = MODEL.generate_custom_voice(
-                text=text,
-                speaker=speaker,
-                language=language,
-                instruct=instruct,
+                text=request["text"],
+                speaker=request["speaker"],
+                language=request["language"],
+                instruct=request["instruct"],
             )
             audio = wavs[0]
-            self._send(200, wav_bytes(audio, sr), "audio/wav")
+            self._send(
+                200,
+                wav_bytes(audio, sr),
+                "audio/wav",
+                {
+                    "X-Orbspeak-Instruct-Supported": "true" if request["instruct_supported"] else "false",
+                    "X-Orbspeak-Instruct-Applied": "true" if request["instruct_applied"] else "false",
+                    "X-Orbspeak-Speaker": request["speaker"],
+                },
+            )
         except Exception as exc:
             traceback.print_exc()
             self._send(*json_bytes({"error": str(exc)}, 500))
