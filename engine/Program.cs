@@ -259,6 +259,9 @@ internal sealed class EngineHost
                 case IpcMethods.SettingsSet:
                     enqueue(HandleSettingsSet(request));
                     break;
+                case IpcMethods.SettingsOpenDataFolder:
+                    enqueue(HandleOpenDataFolder(request));
+                    break;
                 case IpcMethods.TtsSpeak:
                     HandleTtsSpeak(request, enqueue);
                     break;
@@ -279,6 +282,7 @@ internal sealed class EngineHost
                 case IpcMethods.StudioImport:
                 case IpcMethods.StudioList:
                 case IpcMethods.StudioGet:
+                case IpcMethods.StudioSaveText:
                 case IpcMethods.StudioExportAudio:
                 case IpcMethods.StudioSaveStyle:
                 case IpcMethods.StudioGetStyle:
@@ -428,7 +432,9 @@ internal sealed class EngineHost
                         tts = _config.TtsProvider,
                         openaiKeyConfigured = SecretStore.GetOpenAiApiKey() is not null,
                         xaiKeyConfigured = SecretStore.GetXaiApiKey() is not null
-                    }
+                    },
+                    sidecarUrl = _config.QwenSidecarUrl,
+                    qwenModel = _config.QwenModel
                 }
             };
         }
@@ -490,6 +496,15 @@ internal sealed class EngineHost
                 _config.QwenInstruct = instruct.GetString();
             }
 
+            if (values.TryGetProperty("qwenSidecarUrl", out var sidecar) && sidecar.ValueKind == JsonValueKind.String)
+            {
+                var url = sidecar.GetString();
+                if (!string.IsNullOrWhiteSpace(url))
+                {
+                    _config.QwenSidecarUrl = url.Trim();
+                }
+            }
+
             _config.Save();
         }
 
@@ -499,6 +514,24 @@ internal sealed class EngineHost
             Ok = true,
             Result = new { applied = true }
         };
+    }
+
+    private static ResponseMessage HandleOpenDataFolder(RequestMessage request)
+    {
+        try
+        {
+            Directory.CreateDirectory(StudioPaths.Root);
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = StudioPaths.Root,
+                UseShellExecute = true
+            });
+            return new ResponseMessage { Id = request.Id, Ok = true, Result = new { opened = true } };
+        }
+        catch (Exception ex)
+        {
+            return Fail(request.Id, "settings.open_folder_failed", ex.Message);
+        }
     }
 
     private void HandleTtsSpeak(RequestMessage request, Action<IpcEnvelope> enqueue)
@@ -645,6 +678,28 @@ internal sealed class EngineHost
                 }
 
                 return new ResponseMessage { Id = request.Id, Ok = true, Result = doc };
+            }
+            case IpcMethods.StudioSaveText:
+            {
+                var docId = ReadStringParam(request.Params, "docId");
+                if (string.IsNullOrWhiteSpace(docId))
+                {
+                    return Fail(request.Id, "studio.missing_doc", "docId is required.");
+                }
+
+                var text = ReadStringParam(request.Params, "text");
+                if (text is null)
+                {
+                    return Fail(request.Id, "studio.missing_text", "text is required.");
+                }
+
+                var saved = StudioLibrary.SaveText(profileId, docId, text);
+                if (saved is null)
+                {
+                    return Fail(request.Id, "studio.not_found", "Document was not found.");
+                }
+
+                return new ResponseMessage { Id = request.Id, Ok = true, Result = saved };
             }
             case IpcMethods.StudioExportAudio:
             {

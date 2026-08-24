@@ -106,7 +106,7 @@ import {
 } from "@/lib/orb-position-manager";
 import { FocusManager } from "@/lib/focus-manager";
 
-export const Route = createFileRoute("/")({
+export const Route = createFileRoute("/dictation")({
   component: App,
 });
 

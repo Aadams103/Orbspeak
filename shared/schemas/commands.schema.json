@@ -179,6 +179,21 @@
       "required": ["profileId", "docId"],
       "additionalProperties": false
     },
+    "studio.saveText": {
+      "type": "object",
+      "properties": {
+        "profileId": { "type": "string" },
+        "docId": { "type": "string" },
+        "text": { "type": "string" }
+      },
+      "required": ["profileId", "docId", "text"],
+      "additionalProperties": false
+    },
+    "settings.openDataFolder": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
     "studio.exportAudio": {
       "type": "object",
       "properties": {

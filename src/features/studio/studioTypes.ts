@@ -40,3 +40,14 @@ export const DEFAULT_STUDIO_STYLE: StudioStyle = {
 };
 
 export const DEFAULT_STUDIO_PROFILE = "default";
+
+export type ProjectSection = {
+  id: string;
+  title: string;
+  kind: "document" | "chapter";
+  docId: string;
+};
+
+export function documentAsSections(doc: { id: string; title: string }): ProjectSection[] {
+  return [{ id: doc.id, title: doc.title, kind: "document", docId: doc.id }];
+}

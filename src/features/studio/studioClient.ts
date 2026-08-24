@@ -59,6 +59,16 @@ export async function listDocuments(profileId = DEFAULT_STUDIO_PROFILE): Promise
   );
 }
 
+export function openDocumentPicker(): Promise<File | null> {
+  return new Promise((resolve) => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = ".txt,.md,.pdf,text/plain,text/markdown,application/pdf";
+    input.onchange = () => resolve(input.files?.[0] ?? null);
+    input.click();
+  });
+}
+
 export async function getDocument(
   docId: string,
   profileId = DEFAULT_STUDIO_PROFILE,
@@ -98,6 +108,32 @@ export async function importDocument(file: File, profileId = DEFAULT_STUDIO_PROF
   store.documents[doc.id] = doc;
   writeMemory(store);
   return doc;
+}
+
+export async function saveDocumentText(
+  docId: string,
+  text: string,
+  profileId = DEFAULT_STUDIO_PROFILE,
+): Promise<StudioDocument> {
+  const ipc = getEngineIpc();
+  if (ipc?.studioSaveText) {
+    return (await ipc.studioSaveText({ profileId, docId, text })) as StudioDocument;
+  }
+
+  const store = readMemory();
+  const existing = store.documents[docId];
+  if (!existing) {
+    throw new Error("Document was not found.");
+  }
+  const next: StudioDocument = {
+    ...existing,
+    text,
+    sentences: splitSentences(text),
+    updatedAt: new Date().toISOString(),
+  };
+  store.documents[docId] = next;
+  writeMemory(store);
+  return next;
 }
 
 export async function exportVoiceover(

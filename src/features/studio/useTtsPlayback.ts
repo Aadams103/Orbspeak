@@ -12,9 +12,16 @@ export type SpeakOptions = Omit<StudioSpeechSettings, "provider"> & {
   provider: string;
 };
 
+export type PlaybackTiming = {
+  index: number;
+  startMs?: number;
+  endMs?: number;
+};
+
 export function useTtsPlayback() {
   const [playbackState, setPlaybackState] = useState<PlaybackState>("idle");
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
+  const [timing, setTiming] = useState<PlaybackTiming | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const sessionRef = useRef<string | null>(null);
@@ -33,13 +40,21 @@ export function useTtsPlayback() {
       setPlaybackState(next);
       if (next === "stopped" || next === "completed" || next === "error" || next === "idle") {
         setActiveIndex(null);
+        setTiming(null);
       }
       if (next === "error" && payload?.error) setError(payload.error);
     });
     ipc?.onTtsProgress?.((payload) => {
       if (payload?.sessionId && payload.sessionId === ignoreSessionRef.current) return;
       if (!shouldApplyTtsEvent(sessionRef.current, payload?.sessionId)) return;
-      if (typeof payload?.index === "number") setActiveIndex(payload.index);
+      if (typeof payload?.index === "number") {
+        setActiveIndex(payload.index);
+        setTiming({
+          index: payload.index,
+          startMs: typeof payload.startMs === "number" ? payload.startMs : undefined,
+          endMs: typeof payload.endMs === "number" ? payload.endMs : undefined,
+        });
+      }
     });
     return () => {
       void ipc?.ttsStop?.();
@@ -54,6 +69,7 @@ export function useTtsPlayback() {
     setSessionId(null);
     setError(null);
     setActiveIndex(null);
+    setTiming(null);
     setPlaybackState("loading");
     if (ipc?.ttsSpeak) {
       try {
@@ -122,10 +138,11 @@ export function useTtsPlayback() {
     setSessionId(null);
     setPlaybackState("stopped");
     setActiveIndex(null);
+    setTiming(null);
   }, []);
 
   const speaking = playbackState === "loading" || playbackState === "playing" || playbackState === "paused";
   const paused = playbackState === "paused";
 
-  return { playbackState, speaking, paused, activeIndex, error, sessionId, speak, pause, resume, stop };
+  return { playbackState, speaking, paused, activeIndex, timing, error, sessionId, speak, pause, resume, stop };
 }

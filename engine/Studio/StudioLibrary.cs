@@ -104,6 +104,29 @@ internal static class StudioLibrary
             .ToList();
     }
 
+    public static object? SaveText(string profileId, string docId, string text)
+    {
+        var dir = StudioPaths.DocumentDir(profileId, docId);
+        var textPath = Path.Combine(dir, "text.md");
+        if (!Directory.Exists(dir) && !File.Exists(textPath))
+        {
+            return null;
+        }
+
+        Directory.CreateDirectory(dir);
+        File.WriteAllText(textPath, text ?? "");
+
+        var index = LoadIndex(profileId);
+        var doc = index.Documents.FirstOrDefault(d => d.Id == docId);
+        if (doc is not null)
+        {
+            doc.UpdatedAt = DateTime.UtcNow.ToString("o");
+            SaveIndex(profileId, index);
+        }
+
+        return Get(profileId, docId);
+    }
+
     public static object? Get(string profileId, string docId)
     {
         var dir = StudioPaths.DocumentDir(profileId, docId);

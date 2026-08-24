@@ -46,9 +46,11 @@ public static class IpcMethods
     public const string LearningDeleteRule = "learning.deleteRule";
     public const string SettingsGet = "settings.get";
     public const string SettingsSet = "settings.set";
+    public const string SettingsOpenDataFolder = "settings.openDataFolder";
     public const string StudioImport = "studio.import";
     public const string StudioList = "studio.list";
     public const string StudioGet = "studio.get";
+    public const string StudioSaveText = "studio.saveText";
     public const string StudioExportAudio = "studio.exportAudio";
     public const string StudioSaveStyle = "studio.saveStyle";
     public const string StudioGetStyle = "studio.getStyle";
