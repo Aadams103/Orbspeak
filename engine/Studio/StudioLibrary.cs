@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Orbspeak.Shared;
 
 namespace Orbspeak.Engine.Studio;
 
@@ -136,12 +137,16 @@ internal static class StudioLibrary
         };
     }
 
-    public static string SaveVoiceover(string profileId, string docId, byte[] wav)
+    public static string SaveVoiceover(string profileId, string docId, byte[] wav, object? meta = null)
     {
         var dir = StudioPaths.DocumentDir(profileId, docId);
         Directory.CreateDirectory(dir);
         var path = Path.Combine(dir, "voiceover.wav");
         File.WriteAllBytes(path, wav);
+        if (meta is not null)
+        {
+            File.WriteAllText(Path.Combine(dir, "voiceover.meta.json"), JsonSerializer.Serialize(meta, Json));
+        }
         var index = LoadIndex(profileId);
         var doc = index.Documents.FirstOrDefault(d => d.Id == docId);
         if (doc is not null)
@@ -220,38 +225,21 @@ internal static class StudioLibrary
     }
 
     public static IReadOnlyList<(string Original, string Replacement)> ParsePronunciation(string csv)
-    {
-        var rules = new List<(string, string)>();
-        if (string.IsNullOrWhiteSpace(csv))
-        {
-            return rules;
-        }
-
-        foreach (var raw in csv.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
-        {
-            if (raw.StartsWith('#'))
-            {
-                continue;
-            }
-
-            var parts = raw.Split(',', 2, StringSplitOptions.TrimEntries);
-            if (parts.Length == 2 && parts[0].Length > 0)
-            {
-                rules.Add((parts[0], parts[1]));
-            }
-        }
-
-        return rules;
-    }
+        => PronunciationMapper.Parse(csv);
 
     public static string ApplyPronunciation(string text, string csv)
-    {
-        foreach (var (original, replacement) in ParsePronunciation(csv))
-        {
-            text = text.Replace(original, replacement, StringComparison.OrdinalIgnoreCase);
-        }
+        => PronunciationMapper.Apply(text, csv);
 
-        return text;
+    public static bool VoiceoverExists(string profileId, string docId)
+        => File.Exists(Path.Combine(StudioPaths.DocumentDir(profileId, docId), "voiceover.wav"));
+
+    public static StudioProfileStyle NormalizeStyle(StudioProfileStyle style)
+    {
+        var provider = TtsProviderIds.ParseRequired(style.TtsProvider);
+        style.TtsProvider = TtsProviderIds.ToId(provider);
+        style.TtsRate = SpeechRate.Clamp(style.TtsRate);
+        style.TtsVoice = TtsVoiceCatalog.ResolveOrDefault(provider, style.TtsVoice).Id;
+        return style;
     }
 
     private static void Upsert(string profileId, StudioDocument doc)

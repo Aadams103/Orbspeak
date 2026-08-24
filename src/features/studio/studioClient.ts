@@ -7,6 +7,13 @@ import {
   type StudioDocumentMeta,
   type StudioStyle,
 } from "./studioTypes";
+import {
+  OPENAI_VOICES,
+  QWEN_VOICES,
+  type StudioSpeechSettings,
+  type TtsProviderId,
+  type TtsVoiceInfo,
+} from "./ttsContracts";
 
 const MEMORY_KEY = "orbspeak.studio.library";
 const STYLE_KEY = "orbspeak.studio.style";
@@ -95,9 +102,16 @@ export async function importDocument(file: File, profileId = DEFAULT_STUDIO_PROF
 
 export async function exportVoiceover(
   docId: string,
-  extras: { voiceId?: string; instruct?: string } = {},
+  extras: {
+    provider?: string;
+    voiceId?: string;
+    rate?: number;
+    instruct?: string;
+    styleMarkdown?: string;
+    pronunciationCsv?: string;
+  } = {},
   profileId = DEFAULT_STUDIO_PROFILE,
-): Promise<{ dataUrl?: string; path?: string }> {
+): Promise<{ dataUrl?: string; path?: string; overwritten?: boolean; settings?: StudioSpeechSettings }> {
   const ipc = getEngineIpc();
   if (!ipc?.studioExportAudio) {
     throw new Error("Voiceover export needs the Orbspeak desktop engine.");
@@ -105,7 +119,21 @@ export async function exportVoiceover(
   return (await ipc.studioExportAudio({ profileId, docId, ...extras })) as {
     dataUrl?: string;
     path?: string;
+    overwritten?: boolean;
+    settings?: StudioSpeechSettings;
   };
+}
+
+export async function listTtsVoices(): Promise<Record<TtsProviderId, TtsVoiceInfo[]>> {
+  const ipc = getEngineIpc();
+  if (ipc?.ttsVoices) {
+    const result = asRecord(await ipc.ttsVoices());
+    return {
+      qwen3: (result.qwen3 as TtsVoiceInfo[] | undefined) ?? QWEN_VOICES,
+      openai: (result.openai as TtsVoiceInfo[] | undefined) ?? OPENAI_VOICES,
+    };
+  }
+  return { qwen3: QWEN_VOICES, openai: OPENAI_VOICES };
 }
 
 export async function generateArtwork(

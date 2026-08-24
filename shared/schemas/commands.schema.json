@@ -45,11 +45,19 @@
       "type": "object",
       "properties": {
         "text": { "type": "string" },
+        "provider": { "type": "string" },
         "voiceId": { "type": "string" },
         "rate": { "type": "number" },
-        "instruct": { "type": "string" }
+        "instruct": { "type": "string" },
+        "styleMarkdown": { "type": "string" },
+        "pronunciationCsv": { "type": "string" }
       },
       "required": ["text"],
+      "additionalProperties": true
+    },
+    "tts.voices": {
+      "type": "object",
+      "properties": {},
       "additionalProperties": true
     },
     "tts.pause": {
@@ -176,9 +184,12 @@
       "properties": {
         "profileId": { "type": "string" },
         "docId": { "type": "string" },
+        "provider": { "type": "string" },
         "voiceId": { "type": "string" },
         "rate": { "type": "number" },
-        "instruct": { "type": "string" }
+        "instruct": { "type": "string" },
+        "styleMarkdown": { "type": "string" },
+        "pronunciationCsv": { "type": "string" }
       },
       "required": ["profileId", "docId"],
       "additionalProperties": true

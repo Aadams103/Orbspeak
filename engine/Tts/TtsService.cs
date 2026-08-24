@@ -1,136 +1,213 @@
-using System.Net.Http.Headers;
-using System.Text;
-using System.Text.Json;
-using NAudio.Wave;
 using Orbspeak.Shared;
 
 namespace Orbspeak.Engine.Tts;
 
 /// <summary>
-/// Speaks text through Qwen3-TTS (localhost sidecar) or OpenAI TTS.
-/// Sentence-chunks so the UI can highlight the active line.
+/// Speaks or exports text through the selected TTS provider.
+/// Provider, voice, rate, and style are resolved by <see cref="TtsSpeechPlanner"/>.
 /// </summary>
 internal sealed class TtsService : IDisposable
 {
-    private static readonly HttpClient Http = new()
-    {
-        Timeout = TimeSpan.FromMinutes(3)
-    };
-
     private readonly EngineConfig _config;
-    private readonly JsonFileLogger _logger;
-    private readonly object _playLock = new();
-    private WaveOutEvent? _output;
-    private WaveStream? _reader;
-    private MemoryStream? _audioStream;
+    private readonly JsonFileLogger? _logger;
+    private readonly ITtsTransport _transport;
+    private readonly ISentencePlayer _player;
+    private readonly PlaybackController _playback = new();
+    private readonly ManualResetEventSlim _resumeGate = new(true);
+    private readonly object _sessionLock = new();
     private CancellationTokenSource? _speakCts;
-    private TaskCompletionSource? _playbackDone;
 
-    public TtsService(EngineConfig config, JsonFileLogger logger)
+    public TtsService(
+        EngineConfig config,
+        JsonFileLogger? logger = null,
+        ITtsTransport? transport = null,
+        ISentencePlayer? player = null)
     {
         _config = config;
         _logger = logger;
+        _transport = transport ?? new HttpTtsTransport();
+        _player = player ?? new WaveOutSentencePlayer();
     }
 
-    public async Task SpeakAsync(string text, string? voiceId, double? rate, string? instruct, Action<IpcEnvelope> enqueue, CancellationToken cancellationToken)
+    public string? CurrentSessionId => _playback.SessionId;
+    public PlaybackSessionState CurrentState => _playback.State;
+    public PlaybackController Playback => _playback;
+
+    public TtsEngineDefaults Defaults() => new()
     {
-        if (string.IsNullOrWhiteSpace(text))
+        DefaultProvider = _config.TtsProvider,
+        QwenSpeaker = _config.QwenSpeaker,
+        QwenLanguage = _config.QwenLanguage,
+        QwenInstruct = _config.QwenInstruct,
+        QwenModel = _config.QwenModel,
+        QwenSidecarUrl = _config.QwenSidecarUrl,
+        OpenAiTtsModel = _config.OpenAiTtsModel,
+        OpenAiTtsVoice = _config.OpenAiTtsVoice
+    };
+
+    public ResolvedSpeechJob Resolve(StudioSpeechRequest request) =>
+        TtsSpeechPlanner.Resolve(request, Defaults());
+
+    public async Task SpeakAsync(StudioSpeechRequest request, Action<IpcEnvelope> enqueue, CancellationToken cancellationToken)
+    {
+        var job = Resolve(request);
+        StopInternal(emit: false);
+        var sessionId = _playback.Begin();
+        var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        lock (_sessionLock)
         {
-            throw new ArgumentException("text is required", nameof(text));
+            _speakCts = cts;
         }
 
-        Stop();
-        var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        _speakCts = cts;
         var token = cts.Token;
-        _ = rate;
-
-        var sentences = SentenceSplitter.SplitSentences(text);
-        var provider = (_config.TtsProvider ?? "qwen3").Trim().ToLowerInvariant();
-        var cursorMs = 0;
-
-        enqueue(new EventMessage
-        {
-            Event = IpcEvents.TtsState,
-            Payload = new { state = "speaking", provider }
-        });
-        enqueue(new EventMessage
-        {
-            Event = IpcEvents.EngineState,
-            Payload = new EngineStateEventPayload { State = "speaking" }
-        });
+        _resumeGate.Set();
+        EmitState(enqueue, sessionId, job, PlaybackSessionState.Loading);
 
         try
         {
-            for (var i = 0; i < sentences.Count; i++)
+            var cursorMs = 0;
+            for (var i = 0; i < job.Sentences.Count; i++)
             {
                 token.ThrowIfCancellationRequested();
-                var sentence = sentences[i];
-                var wav = await SynthesizeAsync(sentence, voiceId, instruct, token).ConfigureAwait(false);
+                WaitIfPaused(token);
+                var sentence = job.Sentences[i];
+                var wav = await SynthesizeSentenceAsync(job, sentence, token).ConfigureAwait(false);
                 var duration = WavConcat.DurationMs(wav);
-                enqueue(new EventMessage
+                if (!_playback.IsCurrent(sessionId))
                 {
-                    Event = IpcEvents.TtsProgress,
-                    Payload = new TtsProgressPayload
+                    return;
+                }
+
+                WaitIfPaused(token);
+                if (_playback.MarkPlaying(sessionId, i))
+                {
+                    EmitState(enqueue, sessionId, job, PlaybackSessionState.Playing);
+                    enqueue(new EventMessage
                     {
-                        Index = i,
-                        Text = sentence,
-                        StartMs = cursorMs,
-                        EndMs = cursorMs + duration
-                    }
-                });
-                await PlayAndWaitAsync(wav, token).ConfigureAwait(false);
+                        Event = IpcEvents.TtsProgress,
+                        Payload = new TtsProgressPayload
+                        {
+                            Index = i,
+                            Text = sentence,
+                            StartMs = cursorMs,
+                            EndMs = cursorMs + duration,
+                            SessionId = sessionId
+                        }
+                    });
+                }
+
+                await _player.PlayAsync(wav, token).ConfigureAwait(false);
                 cursorMs += duration;
             }
 
-            enqueue(new EventMessage { Event = IpcEvents.TtsState, Payload = new { state = "stopped" } });
-            enqueue(new EventMessage
+            if (_playback.Complete(sessionId))
             {
-                Event = IpcEvents.EngineState,
-                Payload = new EngineStateEventPayload { State = "idle" }
-            });
+                EmitState(enqueue, sessionId, job, PlaybackSessionState.Completed);
+                enqueue(new EventMessage
+                {
+                    Event = IpcEvents.EngineState,
+                    Payload = new EngineStateEventPayload { State = "idle" }
+                });
+                _playback.Reset();
+            }
         }
         catch (OperationCanceledException)
         {
-            enqueue(new EventMessage { Event = IpcEvents.TtsState, Payload = new { state = "stopped" } });
-            enqueue(new EventMessage
+            if (_playback.IsCurrent(sessionId) && _playback.State != PlaybackSessionState.Error)
             {
-                Event = IpcEvents.EngineState,
-                Payload = new EngineStateEventPayload { State = "idle" }
-            });
+                _playback.Stop();
+                EmitState(enqueue, sessionId, job, PlaybackSessionState.Stopped);
+                enqueue(new EventMessage
+                {
+                    Event = IpcEvents.EngineState,
+                    Payload = new EngineStateEventPayload { State = "idle" }
+                });
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger?.Error("tts.lifecycle", "tts.speak failed", ex);
+            if (_playback.Fail(sessionId, ex.Message))
+            {
+                EmitState(enqueue, sessionId, job, PlaybackSessionState.Error, ex.Message);
+                enqueue(new EventMessage
+                {
+                    Event = IpcEvents.EngineState,
+                    Payload = new EngineStateEventPayload { State = "idle" }
+                });
+            }
+
+            throw;
         }
     }
 
-    public async Task<byte[]> ExportAsync(string text, string? voiceId, string? instruct, CancellationToken cancellationToken)
+    public async Task<StudioExportResult> ExportAsync(StudioSpeechRequest request, CancellationToken cancellationToken)
     {
-        var sentences = SentenceSplitter.SplitSentences(text);
+        var job = Resolve(request);
         var chunks = new List<byte[]>();
-        foreach (var sentence in sentences)
+        foreach (var sentence in job.Sentences)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            chunks.Add(await SynthesizeAsync(sentence, voiceId, instruct, cancellationToken).ConfigureAwait(false));
+            chunks.Add(await SynthesizeSentenceAsync(job, sentence, cancellationToken).ConfigureAwait(false));
         }
 
-        return WavConcat.Concatenate(chunks);
-    }
-
-    public void Pause()
-    {
-        lock (_playLock)
+        return new StudioExportResult
         {
-            _output?.Pause();
-        }
+            Wav = WavConcat.Concatenate(chunks),
+            Job = job
+        };
     }
 
-    public void Resume()
+    public bool Pause()
     {
-        lock (_playLock)
+        if (!_playback.TryPause())
         {
-            _output?.Play();
+            return false;
+        }
+
+        _resumeGate.Reset();
+        _player.Pause();
+        return true;
+    }
+
+    public bool Resume()
+    {
+        if (!_playback.TryResume())
+        {
+            return false;
+        }
+
+        _player.Resume();
+        _resumeGate.Set();
+        return true;
+    }
+
+    public void Stop() => StopInternal(emit: false);
+
+    public void Dispose()
+    {
+        Stop();
+        _resumeGate.Dispose();
+        if (_player is IDisposable disposable)
+        {
+            disposable.Dispose();
         }
     }
 
-    public void Stop()
+    private async Task<byte[]> SynthesizeSentenceAsync(ResolvedSpeechJob job, string sentence, CancellationToken cancellationToken)
+    {
+        var call = job.PlanSentence(sentence);
+        var result = await _transport.SendAsync(call, cancellationToken).ConfigureAwait(false);
+        return call.ApplyEngineTempo ? WavTempo.ChangeRate(result.Wav, call.Rate) : result.Wav;
+    }
+
+    private void WaitIfPaused(CancellationToken token)
+    {
+        _resumeGate.Wait(token);
+        token.ThrowIfCancellationRequested();
+    }
+
+    private void StopInternal(bool emit)
     {
         try
         {
@@ -141,123 +218,42 @@ internal sealed class TtsService : IDisposable
             // ignored
         }
 
-        lock (_playLock)
+        _resumeGate.Set();
+        _player.Stop();
+        _playback.Stop();
+        if (emit)
         {
-            _output?.Stop();
-            DisposePlayback();
-            _playbackDone?.TrySetCanceled();
+            // callers that need events emit them after Stop().
         }
     }
 
-    public void Dispose() => Stop();
-
-    private async Task<byte[]> SynthesizeAsync(string text, string? voiceId, string? instruct, CancellationToken cancellationToken)
+    private static void EmitState(
+        Action<IpcEnvelope> enqueue,
+        string sessionId,
+        ResolvedSpeechJob job,
+        PlaybackSessionState state,
+        string? error = null)
     {
-        var provider = (_config.TtsProvider ?? "qwen3").Trim().ToLowerInvariant();
-        if (provider == "openai")
+        enqueue(new EventMessage
         {
-            return await SynthesizeOpenAiAsync(text, voiceId, cancellationToken).ConfigureAwait(false);
-        }
-
-        try
-        {
-            return await SynthesizeQwenAsync(text, voiceId, instruct, cancellationToken).ConfigureAwait(false);
-        }
-        catch (Exception ex) when (SecretStore.GetOpenAiApiKey() is not null)
-        {
-            _logger.Error("tts.qwen", "Qwen sidecar failed; falling back to OpenAI TTS", ex);
-            return await SynthesizeOpenAiAsync(text, voiceId, cancellationToken).ConfigureAwait(false);
-        }
-    }
-
-    private async Task<byte[]> SynthesizeQwenAsync(string text, string? voiceId, string? instruct, CancellationToken cancellationToken)
-    {
-        var url = (_config.QwenSidecarUrl ?? "http://127.0.0.1:8765").TrimEnd('/') + "/v1/speak";
-        var payload = new
-        {
-            text,
-            speaker = string.IsNullOrWhiteSpace(voiceId) ? _config.QwenSpeaker : voiceId,
-            language = _config.QwenLanguage,
-            instruct = string.IsNullOrWhiteSpace(instruct) ? _config.QwenInstruct : instruct
-        };
-        using var request = new HttpRequestMessage(HttpMethod.Post, url)
-        {
-            Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json")
-        };
-        using var response = await Http.SendAsync(request, cancellationToken).ConfigureAwait(false);
-        var bytes = await response.Content.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false);
-        if (!response.IsSuccessStatusCode)
-        {
-            var detail = Encoding.UTF8.GetString(bytes);
-            throw new InvalidOperationException($"Qwen sidecar returned {(int)response.StatusCode}: {detail}");
-        }
-
-        return bytes;
-    }
-
-    private async Task<byte[]> SynthesizeOpenAiAsync(string text, string? voiceId, CancellationToken cancellationToken)
-    {
-        var apiKey = SecretStore.GetOpenAiApiKey();
-        if (string.IsNullOrWhiteSpace(apiKey))
-        {
-            throw new InvalidOperationException("Set OPENAI_API_KEY or start the Qwen sidecar for local TTS.");
-        }
-
-        var payload = new
-        {
-            model = _config.OpenAiTtsModel,
-            voice = string.IsNullOrWhiteSpace(voiceId) ? _config.OpenAiTtsVoice : voiceId,
-            input = text,
-            response_format = "wav"
-        };
-        using var request = new HttpRequestMessage(HttpMethod.Post, "https://api.openai.com/v1/audio/speech");
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
-        request.Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
-        using var response = await Http.SendAsync(request, cancellationToken).ConfigureAwait(false);
-        var bytes = await response.Content.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false);
-        if (!response.IsSuccessStatusCode)
-        {
-            throw new InvalidOperationException($"OpenAI TTS returned {(int)response.StatusCode}: {Encoding.UTF8.GetString(bytes)}");
-        }
-
-        return bytes;
-    }
-
-    private Task PlayAndWaitAsync(byte[] wav, CancellationToken cancellationToken)
-    {
-        var done = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        lock (_playLock)
-        {
-            DisposePlayback();
-            _playbackDone = done;
-            _audioStream = new MemoryStream(wav, writable: false);
-            _reader = new WaveFileReader(_audioStream);
-            _output = new WaveOutEvent();
-            _output.PlaybackStopped += (_, _) => done.TrySetResult();
-            _output.Init(_reader);
-            _output.Play();
-        }
-
-        using var reg = cancellationToken.Register(() =>
-        {
-            lock (_playLock)
+            Event = IpcEvents.TtsState,
+            Payload = new
             {
-                _output?.Stop();
+                state = PlaybackStateIds.ToId(state),
+                sessionId,
+                provider = job.ProviderId,
+                voiceId = job.VoiceId,
+                rate = job.Rate,
+                instructionApplied = job.InstructionApplied,
+                instructionUnavailableReason = job.InstructionUnavailableReason,
+                error
             }
-
-            done.TrySetCanceled(cancellationToken);
         });
-
-        return done.Task;
     }
+}
 
-    private void DisposePlayback()
-    {
-        _output?.Dispose();
-        _output = null;
-        _reader?.Dispose();
-        _reader = null;
-        _audioStream?.Dispose();
-        _audioStream = null;
-    }
+internal sealed class StudioExportResult
+{
+    public byte[] Wav { get; init; } = Array.Empty<byte>();
+    public required ResolvedSpeechJob Job { get; init; }
 }

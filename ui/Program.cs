@@ -60,6 +60,7 @@ internal sealed class MainForm : Form
     ttsPause: function() { return this.request('tts.pause', {}); },
     ttsResume: function() { return this.request('tts.resume', {}); },
     ttsStop: function() { return this.request('tts.stop', {}); },
+    ttsVoices: function() { return this.request('tts.voices', {}); },
     settingsGet: function(key) { return this.request('settings.get', { key: key }); },
     settingsSet: function(values) { return this.request('settings.set', { values: values || {} }); },
     studioImport: function(p) { return this.request('studio.import', p); },

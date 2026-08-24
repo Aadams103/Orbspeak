@@ -54,7 +54,7 @@
       "properties": {
         "state": {
           "type": "string",
-          "enum": ["speaking", "paused", "stopped"]
+          "enum": ["loading", "speaking", "paused", "stopped", "completed", "error"]
         }
       },
       "required": ["state"],
